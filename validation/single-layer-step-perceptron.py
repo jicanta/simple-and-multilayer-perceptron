@@ -20,6 +20,7 @@ X = np.array([[-1, -1], [-1, +1], [+1, -1], [+1, +1]])
 Y = np.array([ -1,       -1,       -1,       +1])
 
 for epoch in range(EPOCHS):
+  errors = 0
   for i in range(len(X)):
     xi = X[i]
     yi = Y[i]
@@ -27,6 +28,10 @@ for epoch in range(EPOCHS):
 
     if y_pred != yi:
       w, b = update_weights(xi, yi, w, b)
+      errors += 1
+
+  if errors == 0:
+    break
 
 print("weights: ", w)
 print("bias: ", b)
