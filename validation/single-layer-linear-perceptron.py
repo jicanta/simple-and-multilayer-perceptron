@@ -2,7 +2,7 @@ import numpy as np
 
 EPOCHS = 50
 LEARNING_RATE = 0.1
-QUAN_POINTS = 50
+N = 50
 
 def f(x, w, b):
   return w * x + b
@@ -14,7 +14,7 @@ def update_weights(x, error, w, b):
 
 w = 0.0
 b = 0.0
-X = np.linspace(-1, 1, QUAN_POINTS)
+X = np.linspace(-1, 1, N)
 Y = X # f(x) = y
 
 for epoch in range(EPOCHS):

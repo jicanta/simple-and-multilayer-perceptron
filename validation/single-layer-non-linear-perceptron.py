@@ -1,39 +1,48 @@
 import numpy as np
 
-EPOCHS = 100
-LEARNING_RATE = 0.1
-QUAN_POINTS = 50
+EPOCHS = 200
+LEARNING_RATE = 0.01
+N = 50
 
-def f(x, w, b):
-  return np.tanh(w * x + b)
+def activation(z):
+    return np.tanh(z)
 
-def update_weights(x, delta, w, b):
-  b = b + LEARNING_RATE * delta
-  w = w + LEARNING_RATE * delta * x
-  return w, b
+def activation_derivative(z):
+    return 1 - np.tanh(z)**2
+
+def forward(x, w, b):
+    z = w * x + b
+    y_pred = activation(z)
+    return y_pred, z
+
+def update(x, error, z, w, b):
+    delta = error * activation_derivative(z)
+    w = w + LEARNING_RATE * delta * x
+    b = b + LEARNING_RATE * delta
+    return w, b
+
+X = np.linspace(-2, 2, N)
+Y = np.tanh(X)
 
 w = 0.0
 b = 0.0
-X = np.linspace(-2, 2, QUAN_POINTS)
-Y = np.tanh(X)
 
 for epoch in range(EPOCHS):
-  for xi, yi in zip(X, Y):
-    y_pred = f(xi, w, b)
+    for xi, yi in zip(X, Y):
+        y_pred, z = forward(xi, w, b)
 
-    error = yi - y_pred
-    delta = error * (1 - y_pred ** 2)
-    w, b = update_weights(xi, delta, w, b)
+        error = yi - y_pred
+        w, b = update(xi, error, z, w, b)
 
-print("weights: ", w)
-print("bias: ", b)
+print("w:", w)
+print("b:", b)
 
 print("\n=== VALIDATION ===")
 print(f"{'x':>6} | {'expected':>10} | {'predicted':>10} | {'error':>10}")
 print("-" * 45)
 
 for xi, yi in zip(X[:10], Y[:10]):
-    y_pred = f(xi, w, b)
+    y_pred, _ = forward(xi, w, b)
     err = yi - y_pred
 
     print(f"{xi:>6.2f} | {yi:>10.2f} | {y_pred:>10.2f} | {err:>10.2f}")
