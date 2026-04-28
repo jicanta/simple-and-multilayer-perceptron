@@ -65,6 +65,49 @@ def print_eda(X, y, ground_truth):
     print()
 
 
+def print_data_quality(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -> None:
+    title = "Data Quality Check"
+    line = "=" * len(title)
+    print(f"\n{line}\n{title}\n{line}")
+
+    # NaN check
+    nan_X = np.isnan(X).sum(axis=0)
+    nan_y = int(np.isnan(y).sum())
+    nan_gt = int(np.isnan(ground_truth.astype(float)).sum())
+    if nan_X.sum() == 0 and nan_y == 0 and nan_gt == 0:
+        print("NaN values: none found")
+    else:
+        print("NaN values per column:")
+        for i, col in enumerate(FEATURE_COLUMNS):
+            if nan_X[i] > 0:
+                print(f"  {col}: {int(nan_X[i])}")
+        if nan_y > 0:
+            print(f"  {TARGET_COLUMN}: {nan_y}")
+        if nan_gt > 0:
+            print(f"  {GROUND_TRUTH_COLUMN}: {nan_gt}")
+
+    # Duplicate rows (features + target)
+    combined = np.hstack([X, y.reshape(-1, 1)])
+    n_unique = len(np.unique(combined, axis=0))
+    n_duplicates = len(X) - n_unique
+    print(f"Duplicate rows: {n_duplicates}")
+
+    # Outlier detection per feature (IQR method, factor=1.5)
+    print(f"\nOutliers per feature (IQR method, factor=1.5):")
+    print(f"  {'Feature':<35} {'Count':>7} {'%':>7} {'Lower bound':>14} {'Upper bound':>14}")
+    print("  " + "-" * 81)
+    for i, col in enumerate(FEATURE_COLUMNS):
+        col_data = X[:, i]
+        q1 = np.percentile(col_data, 25)
+        q3 = np.percentile(col_data, 75)
+        iqr = q3 - q1
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+        n_out = int(np.sum((col_data < lower) | (col_data > upper)))
+        pct = 100.0 * n_out / len(col_data)
+        print(f"  {col:<35} {n_out:>7} {pct:>6.2f}%  {lower:>14.2f} {upper:>14.2f}")
+
+
 class StandardScaler:
     def __init__(self):
         self.mean_ = None

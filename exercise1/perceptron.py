@@ -20,13 +20,22 @@ class LinearPerceptron:
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             return X @ self.w + self.b
 
-    def fit(self, X: np.ndarray, y: np.ndarray, verbose: bool = False) -> "LinearPerceptron":
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        verbose: bool = False,
+        patience: int = 0,
+        min_delta: float = 1e-6,
+    ) -> "LinearPerceptron":
         n_samples, n_features = X.shape
         rng = np.random.default_rng(42)
         self.w = np.zeros(n_features)
         self.b = 0.0
         self.losses = []
         report_every = max(1, self.epochs // 10)
+        best_loss = float("inf")
+        no_improve = 0
 
         for epoch in range(self.epochs):
             indices = rng.permutation(n_samples)
@@ -46,6 +55,20 @@ class LinearPerceptron:
             if verbose and (epoch + 1) % report_every == 0:
                 print(f"  [linear]  epoch {epoch + 1:>4}/{self.epochs}  loss={self.losses[-1]:.6f}")
 
+            if patience > 0:
+                if best_loss - self.losses[-1] > min_delta:
+                    best_loss = self.losses[-1]
+                    no_improve = 0
+                else:
+                    no_improve += 1
+                    if no_improve >= patience:
+                        if verbose:
+                            print(
+                                f"  [linear]  early stop at epoch {epoch + 1}  "
+                                f"loss={self.losses[-1]:.6f}"
+                            )
+                        break
+
         return self
 
 
@@ -62,13 +85,22 @@ class NonLinearPerceptron:
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             return sigmoid(X @ self.w + self.b)
 
-    def fit(self, X: np.ndarray, y: np.ndarray, verbose: bool = False) -> "NonLinearPerceptron":
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        verbose: bool = False,
+        patience: int = 0,
+        min_delta: float = 1e-6,
+    ) -> "NonLinearPerceptron":
         n_samples, n_features = X.shape
         rng = np.random.default_rng(42)
         self.w = rng.normal(0, 0.01, n_features)
         self.b = 0.0
         self.losses = []
         report_every = max(1, self.epochs // 10)
+        best_loss = float("inf")
+        no_improve = 0
 
         for epoch in range(self.epochs):
             indices = rng.permutation(n_samples)
@@ -89,5 +121,19 @@ class NonLinearPerceptron:
 
             if verbose and (epoch + 1) % report_every == 0:
                 print(f"  [sigmoid] epoch {epoch + 1:>4}/{self.epochs}  loss={self.losses[-1]:.6f}")
+
+            if patience > 0:
+                if best_loss - self.losses[-1] > min_delta:
+                    best_loss = self.losses[-1]
+                    no_improve = 0
+                else:
+                    no_improve += 1
+                    if no_improve >= patience:
+                        if verbose:
+                            print(
+                                f"  [sigmoid] early stop at epoch {epoch + 1}  "
+                                f"loss={self.losses[-1]:.6f}"
+                            )
+                        break
 
         return self
