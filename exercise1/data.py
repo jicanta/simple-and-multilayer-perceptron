@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+import numpy as np
+
+DATA_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "data and documentation"
+    / "fraud_dataset.csv"
+)
+
+FEATURE_COLUMNS = [
+    "timestamp",
+    "amount_usd",
+    "quantity_purchased",
+    "session_duration_seconds",
+    "days_since_last_purchase",
+    "account_age_days",
+    "device_screen_resolution",
+    "time_since_last_login_s",
+    "items_viewed_before_purchase",
+]
+
+TARGET_COLUMN = "big_model_fraud_probability"
+GROUND_TRUTH_COLUMN = "flagged_fraud"
+
+
+def load_dataset():
+    rows = []
+    with open(DATA_PATH, newline="") as f:
+        for row in csv.DictReader(f):
+            rows.append(row)
+
+    X = np.array([[float(row[col]) for col in FEATURE_COLUMNS] for row in rows])
+    y = np.array([float(row[TARGET_COLUMN]) for row in rows])
+    ground_truth = np.array([int(row[GROUND_TRUTH_COLUMN]) for row in rows])
+
+    return X, y, ground_truth
+
+
+def print_eda(X, y, ground_truth):
+    title = "Dataset Exploration"
+    line = "=" * len(title)
+    print(f"\n{line}\n{title}\n{line}")
+    print(f"Samples: {X.shape[0]}, Features: {X.shape[1]}")
+    print(
+        f"Target (big_model_fraud_probability): "
+        f"min={y.min():.4f}  max={y.max():.4f}  mean={y.mean():.4f}  std={y.std():.4f}"
+    )
+    print(
+        f"Fraud rate (flagged_fraud): "
+        f"{ground_truth.mean():.2%} ({ground_truth.sum()} / {len(ground_truth)})"
+    )
+    print()
+    print(f"{'Feature':<35} {'Min':>14} {'Max':>14} {'Mean':>14} {'Std':>14}")
+    print("-" * 93)
+    for i, col in enumerate(FEATURE_COLUMNS):
+        col_data = X[:, i]
+        print(
+            f"{col:<35} {col_data.min():>14.2f} {col_data.max():>14.2f} "
+            f"{col_data.mean():>14.2f} {col_data.std():>14.2f}"
+        )
+    print()
+
+
+class StandardScaler:
+    def __init__(self):
+        self.mean_ = None
+        self.std_ = None
+
+    def fit(self, X: np.ndarray) -> "StandardScaler":
+        self.mean_ = X.mean(axis=0)
+        self.std_ = X.std(axis=0)
+        self.std_[self.std_ == 0] = 1.0
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        return (X - self.mean_) / self.std_
+
+    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+        return self.fit(X).transform(X)
+
+
+def train_test_split(
+    X: np.ndarray,
+    y: np.ndarray,
+    ground_truth: np.ndarray,
+    train_ratio: float = 0.8,
+    seed: int = 42,
+):
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(len(X))
+    split = int(len(X) * train_ratio)
+    train_idx, test_idx = indices[:split], indices[split:]
+    return (
+        X[train_idx], y[train_idx], ground_truth[train_idx],
+        X[test_idx], y[test_idx], ground_truth[test_idx],
+    )
+
+
+def kfold_split(
+    X: np.ndarray,
+    y: np.ndarray,
+    ground_truth: np.ndarray,
+    k: int = 5,
+    seed: int = 42,
+):
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(len(X))
+    folds = np.array_split(indices, k)
+    for i in range(k):
+        val_idx = folds[i]
+        train_idx = np.concatenate([folds[j] for j in range(k) if j != i])
+        yield (
+            X[train_idx], y[train_idx], ground_truth[train_idx],
+            X[val_idx], y[val_idx], ground_truth[val_idx],
+        )
