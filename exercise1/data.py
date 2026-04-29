@@ -136,6 +136,53 @@ def print_data_quality(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -
         print(f"  {col:<35} {n_out:>7} {pct:>6.2f}%  {lower:>14.2f} {upper:>14.2f}")
 
 
+def build_feature_sets(X: np.ndarray) -> dict[str, tuple[np.ndarray, list[str]]]:
+    """
+    Return three feature sets for comparison.
+
+    Column index map for X:
+        0 timestamp, 1 amount_usd, 2 quantity_purchased, 3 session_duration_seconds,
+        4 days_since_last_purchase, 5 account_age_days, 6 device_screen_resolution,
+        7 time_since_last_login_s, 8 items_viewed_before_purchase
+
+    Design rationale:
+    - A linear perceptron CAN approximate ratio features (amount_per_item,
+      purchase_speed) from their components — we discard those.
+    - It CANNOT learn log() or modulo() from a linear input — so we REPLACE
+      the skewed/monotone originals with their non-linear transforms.
+    - It CANNOT learn step functions — so we ADD binary threshold features
+      alongside their continuous counterparts.
+    """
+    timestamp = X[:, 0]
+    amount    = X[:, 1]
+    acct_age  = X[:, 5]
+    items     = X[:, 8]
+
+    # Keep all columns except timestamp (0) and amount_usd (1)
+    keep_cols  = [2, 3, 4, 5, 6, 7, 8]
+    keep_names = [FEATURE_COLUMNS[i] for i in keep_cols]
+    X_keep = X[:, keep_cols]
+
+    hour_of_day = (timestamp % 86400) / 3600.0   # modulo — can't be learned linearly
+    log_amount  = np.log1p(amount)                # log   — can't be learned linearly
+
+    # Set B: replace timestamp→hour_of_day, amount_usd→log_amount
+    X_b     = np.column_stack([hour_of_day, log_amount, X_keep])
+    names_b = ["hour_of_day", "log_amount"] + keep_names
+
+    # Set C: Set B + binary thresholds the perceptron can't learn as step functions
+    is_new_account      = (acct_age < 30).astype(np.float64)
+    browsed_before_buy  = (items > 0).astype(np.float64)
+    X_c     = np.column_stack([X_b, is_new_account, browsed_before_buy])
+    names_c = names_b + ["is_new_account", "browsed_before_buying"]
+
+    return {
+        "A — Original (9)":            (X,   list(FEATURE_COLUMNS)),
+        "B — Replace timestamp+amount (9)": (X_b, names_b),
+        "C — Replace + binary flags (11)":  (X_c, names_c),
+    }
+
+
 class StandardScaler:
     def __init__(self):
         self.mean_ = None

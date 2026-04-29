@@ -1,6 +1,7 @@
 import numpy as np
 
 from data import (
+    build_feature_sets,
     FEATURE_COLUMNS,
     kfold_split,
     load_dataset,
@@ -10,7 +11,13 @@ from data import (
     train_test_split,
 )
 from perceptron import LinearPerceptron, NonLinearPerceptron
-from plots import save_loss_comparison, save_roc_curve, save_threshold_analysis
+from plots import (
+    save_activation_comparison,
+    save_feature_engineering_plot,
+    save_loss_comparison,
+    save_roc_curve,
+    save_threshold_analysis,
+)
 
 
 EPOCHS = 200
@@ -275,6 +282,162 @@ def run_best_training_set(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray
     )
 
 
+def run_feature_engineering(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -> None:
+    _section("Optional: Feature Engineering — Impact on F1")
+
+    feature_sets = build_feature_sets(X)
+
+    print("\n  Feature sets:")
+    print("  A — Original 9 features (baseline)")
+    print("  B — Replace timestamp→hour_of_day, amount_usd→log_amount  (still 9)")
+    print("  C — Set B + is_new_account + browsed_before_buying  (11 features)")
+
+    def _kfold_f1(X_data: np.ndarray, target: np.ndarray) -> tuple[float, float]:
+        f1s = []
+        for X_tr, y_tr, gt_tr, X_val, y_val, gt_val in kfold_split(
+            X_data, target, ground_truth, k=K_FOLDS
+        ):
+            sc = StandardScaler()
+            model = NonLinearPerceptron(
+                learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE
+            )
+            model.fit(sc.fit_transform(X_tr), y_tr)
+            m = compute_metrics(y_val, model.predict(sc.transform(X_val)), gt_val)
+            f1s.append(m["f1"])
+        return float(np.mean(f1s)), float(np.std(f1s))
+
+    def _run_table(target: np.ndarray, target_label: str, plot_filename: str) -> None:
+        print(f"\n  Target: {target_label}")
+        print(f"  {'Set':<40} {'n':>4} {'F1 mean':>9} {'± std':>7} {'vs A':>8}")
+        print("  " + "-" * 73)
+        labels, f1_means, f1_stds, base_f1 = [], [], [], None
+        for label, (X_set, names) in feature_sets.items():
+            f1, std = _kfold_f1(X_set, target)
+            if base_f1 is None:
+                base_f1 = f1
+            delta = f1 - base_f1
+            print(f"  {label:<40} {len(names):>4} {f1:>9.4f} {std:>7.4f}  {delta:>+.4f}")
+            labels.append(label)
+            f1_means.append(f1)
+            f1_stds.append(std)
+        path = save_feature_engineering_plot(plot_filename, labels, f1_means, f1_stds, base_f1)
+        if path:
+            print(f"  plot: {path}")
+
+    print(f"\n  Running K-Fold (k={K_FOLDS}, epochs={EPOCHS})...\n")
+
+    _run_table(
+        y,
+        "big_model_fraud_probability (continuous, model already captured non-linearities)",
+        "feature_engineering_bigmodel.png",
+    )
+    _run_table(
+        ground_truth.astype(np.float64),
+        "flagged_fraud (binary 0/1, model must discover non-linearities from scratch)",
+        "feature_engineering_groundtruth.png",
+    )
+
+
+def run_relu_comparison(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -> None:
+    _section("Optional: ReLU vs Sigmoid — Activation Comparison (K-Fold)")
+    print(f"  k={K_FOLDS}  epochs={EPOCHS}  lr={LEARNING_RATE}  batch={BATCH_SIZE}\n")
+    print(
+        f"  {'Fold':<6} {'Sigmoid F1':>12} {'Sigmoid Acc':>13}"
+        f" {'ReLU F1':>10} {'ReLU Acc':>11}"
+    )
+    print("  " + "-" * 56)
+
+    sigmoid_fold_metrics: list[dict] = []
+    relu_fold_metrics: list[dict] = []
+
+    for fold_idx, (X_tr, y_tr, gt_tr, X_val, y_val, gt_val) in enumerate(
+        kfold_split(X, y, ground_truth, k=K_FOLDS)
+    ):
+        scaler = StandardScaler()
+        X_tr_s = scaler.fit_transform(X_tr)
+        X_val_s = scaler.transform(X_val)
+
+        sig_model = NonLinearPerceptron(
+            learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE, activation="sigmoid"
+        )
+        sig_model.fit(X_tr_s, y_tr)
+
+        relu_model = NonLinearPerceptron(
+            learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE, activation="relu"
+        )
+        relu_model.fit(X_tr_s, y_tr)
+
+        m_sig = compute_metrics(y_val, sig_model.predict(X_val_s), gt_val)
+        m_relu = compute_metrics(y_val, relu_model.predict(X_val_s), gt_val)
+        sigmoid_fold_metrics.append(m_sig)
+        relu_fold_metrics.append(m_relu)
+
+        print(
+            f"  {fold_idx + 1:<6}"
+            f" {m_sig['f1']:>12.4f} {m_sig['accuracy']:>13.2%}"
+            f" {m_relu['f1']:>10.4f} {m_relu['accuracy']:>11.2%}"
+        )
+
+    print()
+    print(f"  {'Metric':<12} {'Sigmoid mean ± std':>24}  {'ReLU mean ± std':>24}")
+    print("  " + "-" * 64)
+    for key in ("mse", "mae", "f1", "accuracy"):
+        v_sig = [m[key] for m in sigmoid_fold_metrics]
+        v_relu = [m[key] for m in relu_fold_metrics]
+        fmt = ".4f" if key in ("f1",) else ".6f"
+        if key == "accuracy":
+            sig_str = f"{np.mean(v_sig):.2%} ± {np.std(v_sig):.4f}"
+            relu_str = f"{np.mean(v_relu):.2%} ± {np.std(v_relu):.4f}"
+        else:
+            sig_str = f"{np.mean(v_sig):{fmt}} ± {np.std(v_sig):.6f}"
+            relu_str = f"{np.mean(v_relu):{fmt}} ± {np.std(v_relu):.6f}"
+        print(f"  {key:<12} {sig_str:>24}  {relu_str:>24}")
+
+    # Full-dataset training to compare loss curves and output distributions
+    print("\n  Training on full dataset for curve/distribution comparison...")
+    scaler_full = StandardScaler()
+    X_s = scaler_full.fit_transform(X)
+
+    sig_full = NonLinearPerceptron(
+        learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE, activation="sigmoid"
+    )
+    sig_full.fit(X_s, y)
+
+    relu_full = NonLinearPerceptron(
+        learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE, activation="relu"
+    )
+    relu_full.fit(X_s, y)
+
+    sig_out = sig_full.predict(X_s)
+    relu_out = relu_full.predict(X_s)
+
+    print(f"\n  Output range (full dataset):")
+    print(f"    sigmoid : [{sig_out.min():.4f}, {sig_out.max():.4f}]  — bounded by construction")
+    print(f"    relu    : [{relu_out.min():.4f}, {relu_out.max():.4f}]  — unbounded above")
+    dead_pct = (relu_out == 0.0).mean()
+    print(f"    ReLU dead (output==0): {dead_pct:.1%} of samples")
+
+    path = save_activation_comparison(
+        "relu_comparison.png",
+        sig_full.losses,
+        relu_full.losses,
+        sig_out,
+        relu_out,
+    )
+    if path:
+        print(f"\n  plot: {path}")
+
+    print(
+        "\n  Key observations:"
+        "\n  · Sigmoid gradients vanish when outputs saturate near 0 or 1 (slow late convergence)."
+        "\n  · ReLU avoids saturation — gradient is constant (1) for active neurons."
+        "\n  · ReLU risk: neurons with negative pre-activation get zero gradient ('dying ReLU')."
+        "\n  · ReLU outputs are unbounded; threshold search must cover the actual output range."
+        "\n  · For single-layer binary classification, sigmoid is generally preferred as it"
+        "\n    produces calibrated probabilities and avoids the dead-neuron problem."
+    )
+
+
 if __name__ == "__main__":
     X, y, ground_truth = load_dataset()
     print_eda(X, y, ground_truth)
@@ -284,3 +447,5 @@ if __name__ == "__main__":
     run_final_model(X, y, ground_truth)
     run_extended_generalization_study(X, y, ground_truth)
     run_best_training_set(X, y, ground_truth)
+    run_relu_comparison(X, y, ground_truth)
+    run_feature_engineering(X, y, ground_truth)

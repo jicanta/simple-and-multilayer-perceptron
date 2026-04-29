@@ -100,6 +100,81 @@ def save_roc_curve(
     return path, auc
 
 
+def save_feature_engineering_plot(
+    filename: str,
+    labels: list[str],
+    f1_means: list[float],
+    f1_stds: list[float],
+    baseline_f1: float,
+) -> Path | None:
+    plt = _plt()
+    if plt is None:
+        return None
+    path = _dir() / filename
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = [
+        "tab:gray" if lbl == "Baseline (9)" else
+        "tab:blue" if lbl == "All engineered (+6)" else
+        "tab:orange"
+        for lbl in labels
+    ]
+    bars = ax.barh(labels, f1_means, xerr=f1_stds, color=colors,
+                   alpha=0.85, capsize=4, error_kw={"elinewidth": 1.5})
+    ax.axvline(baseline_f1, color="tab:gray", linestyle="--", linewidth=1.2,
+               label=f"Baseline F1 = {baseline_f1:.4f}")
+    for bar, mean in zip(bars, f1_means):
+        ax.text(mean + 0.002, bar.get_y() + bar.get_height() / 2,
+                f"{mean:.4f}", va="center", fontsize=9)
+    ax.set_xlabel("Mean F1 (K-Fold)")
+    ax.set_title("Ex1 — Feature Engineering Impact on F1")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="x")
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def save_activation_comparison(
+    filename: str,
+    sigmoid_losses: list[float],
+    relu_losses: list[float],
+    sigmoid_outputs: np.ndarray,
+    relu_outputs: np.ndarray,
+) -> Path | None:
+    plt = _plt()
+    if plt is None:
+        return None
+    path = _dir() / filename
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+
+    axes[0].plot(sigmoid_losses, label="sigmoid", color="tab:blue")
+    axes[0].plot(relu_losses, label="relu", color="tab:orange")
+    axes[0].set_title("Training Loss (MSE)")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("MSE Loss")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    all_vals = np.concatenate([sigmoid_outputs, relu_outputs])
+    bins = np.linspace(all_vals.min(), max(all_vals.max(), 1.05), 50)
+    axes[1].hist(sigmoid_outputs, bins=bins, alpha=0.6, label="sigmoid", color="tab:blue")
+    axes[1].hist(relu_outputs, bins=bins, alpha=0.6, label="relu", color="tab:orange")
+    axes[1].axvline(0.5, color="red", linestyle="--", alpha=0.6, label="threshold = 0.5")
+    axes[1].set_title("Output Score Distribution (full dataset)")
+    axes[1].set_xlabel("Predicted score")
+    axes[1].set_ylabel("Sample count")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    fig.suptitle("Ex1 — Sigmoid vs ReLU Activation Comparison", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
 def save_threshold_analysis(
     filename: str, y_true: np.ndarray, y_scores: np.ndarray, title: str
 ) -> tuple[Path | None, float]:

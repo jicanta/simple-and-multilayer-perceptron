@@ -7,6 +7,10 @@ def sigmoid(z: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(z, -500, 500)))
 
 
+def relu(z: np.ndarray) -> np.ndarray:
+    return np.maximum(0.0, z)
+
+
 class LinearPerceptron:
     def __init__(self, learning_rate: float = 0.01, epochs: int = 100, batch_size: int = 32):
         self.learning_rate = learning_rate
@@ -73,17 +77,29 @@ class LinearPerceptron:
 
 
 class NonLinearPerceptron:
-    def __init__(self, learning_rate: float = 0.01, epochs: int = 100, batch_size: int = 32):
+    def __init__(
+        self,
+        learning_rate: float = 0.01,
+        epochs: int = 100,
+        batch_size: int = 32,
+        activation: str = "sigmoid",
+    ):
+        if activation not in ("sigmoid", "relu"):
+            raise ValueError(f"activation must be 'sigmoid' or 'relu', got {activation!r}")
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.batch_size = batch_size
+        self.activation = activation
         self.w: np.ndarray | None = None
         self.b: float = 0.0
         self.losses: list[float] = []
 
+    def _activate(self, z: np.ndarray) -> np.ndarray:
+        return sigmoid(z) if self.activation == "sigmoid" else relu(z)
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            return sigmoid(X @ self.w + self.b)
+            return self._activate(X @ self.w + self.b)
 
     def fit(
         self,
@@ -101,6 +117,7 @@ class NonLinearPerceptron:
         report_every = max(1, self.epochs // 10)
         best_loss = float("inf")
         no_improve = 0
+        tag = self.activation
 
         for epoch in range(self.epochs):
             indices = rng.permutation(n_samples)
@@ -110,9 +127,14 @@ class NonLinearPerceptron:
             for start in range(0, n_samples, self.batch_size):
                 Xb = X_sh[start : start + self.batch_size]
                 yb = y_sh[start : start + self.batch_size]
-                y_pred = sigmoid(Xb @ self.w + self.b)
+                y_pred = self._activate(Xb @ self.w + self.b)
                 error = yb - y_pred
-                delta = error * y_pred * (1.0 - y_pred)
+                if self.activation == "sigmoid":
+                    # f'(z) computed from output: σ(z)·(1−σ(z))
+                    delta = error * y_pred * (1.0 - y_pred)
+                else:
+                    # ReLU: f'(z) = 1 if output > 0 else 0
+                    delta = error * (y_pred > 0).astype(np.float64)
                 self.w += self.learning_rate * (Xb.T @ delta) / len(Xb)
                 self.b += self.learning_rate * delta.mean()
                 batch_losses.append(float(np.mean(error**2)))
@@ -120,7 +142,7 @@ class NonLinearPerceptron:
             self.losses.append(float(np.mean(batch_losses)))
 
             if verbose and (epoch + 1) % report_every == 0:
-                print(f"  [sigmoid] epoch {epoch + 1:>4}/{self.epochs}  loss={self.losses[-1]:.6f}")
+                print(f"  [{tag}] epoch {epoch + 1:>4}/{self.epochs}  loss={self.losses[-1]:.6f}")
 
             if patience > 0:
                 if best_loss - self.losses[-1] > min_delta:
@@ -131,7 +153,7 @@ class NonLinearPerceptron:
                     if no_improve >= patience:
                         if verbose:
                             print(
-                                f"  [sigmoid] early stop at epoch {epoch + 1}  "
+                                f"  [{tag}] early stop at epoch {epoch + 1}  "
                                 f"loss={self.losses[-1]:.6f}"
                             )
                         break
