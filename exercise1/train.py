@@ -10,9 +10,10 @@ from data import (
     StandardScaler,
     train_test_split,
 )
-from perceptron import LinearPerceptron, NonLinearPerceptron
+from perceptron import LinearPerceptron, NonLinearPerceptron, sigmoid
 from plots import (
     save_activation_comparison,
+    save_calibration_plot,
     save_feature_engineering_plot,
     save_loss_comparison,
     save_roc_curve,
@@ -338,6 +339,115 @@ def run_feature_engineering(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarr
     )
 
 
+def _platt_scale(
+    scores_fit: np.ndarray,
+    labels_fit: np.ndarray,
+    scores_apply: np.ndarray,
+    lr: float = 0.1,
+    n_iter: int = 2000,
+) -> tuple[np.ndarray, float, float]:
+    """
+    Fit Platt scaling: find a, b s.t. sigmoid(a·s + b) is well calibrated.
+    Minimises binary cross-entropy on (scores_fit, labels_fit) via gradient descent.
+    """
+    a, b = 1.0, 0.0
+    for _ in range(n_iter):
+        p = sigmoid(a * scores_fit + b)
+        err = labels_fit - p              # positive = model under-predicts
+        grad_a = -np.mean(err * scores_fit)
+        grad_b = -np.mean(err)
+        a -= lr * grad_a
+        b -= lr * grad_b
+    return sigmoid(a * scores_apply + b), a, b
+
+
+def _ece(scores: np.ndarray, labels: np.ndarray, n_bins: int = 10) -> float:
+    """Expected Calibration Error."""
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    n = len(scores)
+    for lo, hi in zip(bins[:-1], bins[1:]):
+        mask = (scores >= lo) & (scores < hi)
+        if mask.sum() == 0:
+            continue
+        ece += mask.sum() / n * abs(scores[mask].mean() - labels[mask].mean())
+    return float(ece)
+
+
+def run_calibration(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -> None:
+    _section("Optional: Probability Calibration (Platt Scaling)")
+
+    # 3-way split: 70% train · 15% calibration · 15% test
+    rng = np.random.default_rng(42)
+    idx = rng.permutation(len(X))
+    n_tr  = int(0.70 * len(X))
+    n_cal = int(0.15 * len(X))
+    tr_idx, cal_idx, te_idx = idx[:n_tr], idx[n_tr:n_tr + n_cal], idx[n_tr + n_cal:]
+
+    X_tr,  y_tr,  gt_tr  = X[tr_idx],  y[tr_idx],  ground_truth[tr_idx]
+    X_cal, y_cal, gt_cal = X[cal_idx], y[cal_idx], ground_truth[cal_idx]
+    X_te,  y_te,  gt_te  = X[te_idx],  y[te_idx],  ground_truth[te_idx]
+
+    scaler = StandardScaler()
+    X_tr_s  = scaler.fit_transform(X_tr)
+    X_cal_s = scaler.transform(X_cal)
+    X_te_s  = scaler.transform(X_te)
+
+    print(f"\n  Split: {len(X_tr)} train / {len(X_cal)} calibration / {len(X_te)} test")
+    print(f"  Training NonLinearPerceptron (epochs={EPOCHS}, lr={LEARNING_RATE})...")
+
+    model = NonLinearPerceptron(
+        learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE
+    )
+    model.fit(X_tr_s, y_tr)
+
+    # Raw scores on calibration and test sets
+    cal_scores_raw = model.predict(X_cal_s)
+    te_scores_raw  = model.predict(X_te_s)
+
+    # Platt scaling: fit (a, b) on calibration set, apply to test set
+    te_scores_cal, a, b = _platt_scale(cal_scores_raw, gt_cal.astype(float), te_scores_raw)
+
+    ece_raw = _ece(te_scores_raw, gt_te.astype(float))
+    ece_cal = _ece(te_scores_cal, gt_te.astype(float))
+
+    print(f"\n  Platt scaling parameters: a={a:.4f}  b={b:.4f}")
+    print(f"  ECE before calibration : {ece_raw:.4f}")
+    print(f"  ECE after  calibration : {ece_cal:.4f}  (Δ {ece_cal - ece_raw:+.4f})")
+
+    # Score distribution on test set
+    print(f"\n  Score range — raw   : [{te_scores_raw.min():.4f}, {te_scores_raw.max():.4f}]")
+    print(f"  Score range — Platt : [{te_scores_cal.min():.4f}, {te_scores_cal.max():.4f}]")
+
+    # F1 at threshold 0.5 before and after
+    m_raw = compute_metrics(y_te, te_scores_raw,  gt_te, threshold=0.5)
+    m_cal = compute_metrics(y_te, te_scores_cal,  gt_te, threshold=0.5)
+    print(f"\n  F1 @ 0.5 threshold — raw   : {m_raw['f1']:.4f}  "
+          f"(prec={m_raw['precision']:.4f}  rec={m_raw['recall']:.4f})")
+    print(f"  F1 @ 0.5 threshold — Platt : {m_cal['f1']:.4f}  "
+          f"(prec={m_cal['precision']:.4f}  rec={m_cal['recall']:.4f})")
+
+    print(
+        "\n  Interpretation:"
+        "\n  · ECE measures average |predicted probability − actual fraud rate| per bin."
+        "\n  · The perceptron was trained with MSE on big_model_fraud_probability,"
+        "\n    not with cross-entropy on binary labels, so its outputs are not"
+        "\n    guaranteed to be calibrated probabilities w.r.t. ground truth."
+        "\n  · Platt scaling re-maps the scores through sigmoid(a·s+b) to align"
+        "\n    predicted confidence with actual positive rates."
+        "\n  · In fraud detection this matters: if you say p=0.8, it should mean"
+        "\n    80% of those cases are real fraud — otherwise thresholds are arbitrary."
+    )
+
+    path = save_calibration_plot(
+        "calibration.png",
+        te_scores_raw, te_scores_cal, gt_te.astype(float),
+        ece_raw, ece_cal,
+    )
+    if path:
+        print(f"\n  plot: {path}")
+
+
 def run_relu_comparison(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -> None:
     _section("Optional: ReLU vs Sigmoid — Activation Comparison (K-Fold)")
     print(f"  k={K_FOLDS}  epochs={EPOCHS}  lr={LEARNING_RATE}  batch={BATCH_SIZE}\n")
@@ -449,3 +559,4 @@ if __name__ == "__main__":
     run_best_training_set(X, y, ground_truth)
     run_relu_comparison(X, y, ground_truth)
     run_feature_engineering(X, y, ground_truth)
+    run_calibration(X, y, ground_truth)

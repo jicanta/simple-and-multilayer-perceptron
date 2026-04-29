@@ -100,6 +100,60 @@ def save_roc_curve(
     return path, auc
 
 
+def save_calibration_plot(
+    filename: str,
+    scores_raw: np.ndarray,
+    scores_cal: np.ndarray,
+    labels: np.ndarray,
+    ece_raw: float,
+    ece_cal: float,
+    n_bins: int = 10,
+) -> Path | None:
+    plt = _plt()
+    if plt is None:
+        return None
+    path = _dir() / filename
+
+    def _reliability_curve(scores, labels, n_bins):
+        bins = np.linspace(0.0, 1.0, n_bins + 1)
+        bin_means, bin_fracs, bin_counts = [], [], []
+        for lo, hi in zip(bins[:-1], bins[1:]):
+            mask = (scores >= lo) & (scores < hi)
+            if mask.sum() > 0:
+                bin_means.append(scores[mask].mean())
+                bin_fracs.append(labels[mask].mean())
+                bin_counts.append(mask.sum())
+        return np.array(bin_means), np.array(bin_fracs), np.array(bin_counts)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    for ax, scores, title, ece in zip(
+        axes,
+        [scores_raw, scores_cal],
+        [f"Before calibration  (ECE={ece_raw:.4f})",
+         f"After Platt scaling (ECE={ece_cal:.4f})"],
+        [ece_raw, ece_cal],
+    ):
+        bm, bf, bc = _reliability_curve(scores, labels, n_bins)
+        ax.plot([0, 1], [0, 1], "k--", alpha=0.4, label="perfect calibration")
+        ax.scatter(bm, bf, s=bc / bc.max() * 200, zorder=3)
+        ax.plot(bm, bf, color="tab:blue", label="model")
+        ax.fill_between(bm, bm, bf, alpha=0.15, color="tab:red", label="calibration gap")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_xlabel("Mean predicted probability")
+        ax.set_ylabel("Fraction of positives (actual fraud rate)")
+        ax.set_title(title)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("Ex1 — Probability Calibration (reliability diagram)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
 def save_feature_engineering_plot(
     filename: str,
     labels: list[str],
