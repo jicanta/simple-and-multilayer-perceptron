@@ -137,10 +137,15 @@ class MultilayerPerceptron:
         self,
         activations: list[np.ndarray],
         y_true: np.ndarray,
+        sample_weights: np.ndarray | None = None,
     ) -> list[np.ndarray]:
         deltas: list[np.ndarray] = [np.empty((0, 0), dtype=np.float32) for _ in self.weights]
         output = activations[-1]
-        deltas[-1] = (y_true - output) * self._activate_derivative(output)
+        delta_out = (y_true - output) * self._activate_derivative(output)
+        if sample_weights is not None:
+            # Scale each sample's error by its class weight — (batch,1) broadcasts over (batch, n_out)
+            delta_out = delta_out * sample_weights[:, np.newaxis]
+        deltas[-1] = delta_out
 
         for layer_idx in range(len(self.weights) - 2, -1, -1):
             propagated = deltas[layer_idx + 1] @ self.weights[layer_idx + 1][:-1, :].T
@@ -228,26 +233,49 @@ class MultilayerPerceptron:
         early_stopping: bool = False,
         patience: int = 20,
         min_delta: float = 1e-5,
+        class_weights: np.ndarray | None = None,
+        use_weighted_sampling: bool = False,
     ) -> "MultilayerPerceptron":
         rng = np.random.default_rng(self.seed)
-        y_train_oh = np.eye(self.layer_sizes[-1], dtype=np.float32)[y_train]
+        n = len(X_train)
+        n_classes = self.layer_sizes[-1]
+        y_train_oh = np.eye(n_classes, dtype=np.float32)[y_train]
         best_val_loss = float("inf")
         best_weights = [weight.copy() for weight in self.weights]
         epochs_without_improvement = 0
         should_stop = False
         epoch_offset = self.history[-1].epoch if self.history else 0
 
+        # Pre-compute sampling probabilities once (for weighted sampling)
+        sample_probs: np.ndarray | None = None
+        if use_weighted_sampling:
+            counts = np.bincount(y_train, minlength=n_classes).astype(np.float64)
+            counts = np.where(counts == 0, 1.0, counts)
+            w = (1.0 / counts)[y_train]
+            sample_probs = w / w.sum()
+
         for local_epoch in range(1, epochs + 1):
             epoch = epoch_offset + local_epoch
-            indices = rng.permutation(len(X_train))
+
+            if use_weighted_sampling and sample_probs is not None:
+                indices = rng.choice(n, size=n, replace=True, p=sample_probs)
+            else:
+                indices = rng.permutation(n)
+
             X_epoch = X_train[indices]
             y_epoch = y_train_oh[indices]
+            y_labels_epoch = y_train[indices]  # original labels, needed for per-sample weights
 
-            for start in range(0, len(X_epoch), self.batch_size):
+            for start in range(0, n, self.batch_size):
                 X_batch = X_epoch[start : start + self.batch_size]
                 y_batch = y_epoch[start : start + self.batch_size]
                 activations = self.forward(X_batch)
-                gradients = self._backward(activations, y_batch)
+
+                batch_sample_weights: np.ndarray | None = None
+                if class_weights is not None:
+                    batch_sample_weights = class_weights[y_labels_epoch[start : start + self.batch_size]]
+
+                gradients = self._backward(activations, y_batch, batch_sample_weights)
                 self._apply_optimizer(gradients)
 
             train_proba = self.predict_proba(X_train)
