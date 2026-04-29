@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+.mplcache/
+.cache/
+
+data and documentation/
+data_and_documentation/
+
+.claude/
+
+exercise2/results/
+exercise2/models/
+exercise2/plots/
+
+validation/plots/

@@ -1,15 +1,42 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 
 import numpy as np
 
-DATA_PATH = (
-    Path(__file__).resolve().parent.parent.parent
-    / "data and documentation"
-    / "fraud_dataset.csv"
-)
+
+def _candidate_data_dirs() -> list[Path]:
+    env_dir = os.environ.get("TP3_DATA_DIR")
+    candidates = []
+    if env_dir:
+        candidates.append(Path(env_dir).expanduser())
+
+    repo_root = Path(__file__).resolve().parent.parent
+    candidates.extend(
+        [
+            repo_root / "data and documentation",
+            repo_root / "data_and_documentation",
+            Path.cwd() / "data and documentation",
+            Path.cwd() / "data_and_documentation",
+        ]
+    )
+    return candidates
+
+
+def resolve_data_path(filename: str) -> Path:
+    for directory in _candidate_data_dirs():
+        candidate = directory / filename
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"Could not find {filename!r}. Checked: "
+        + ", ".join(str(directory / filename) for directory in _candidate_data_dirs())
+        + ". Place the extracted dataset folder in the repository root "
+        + "or set TP3_DATA_DIR=/path/to/data_and_documentation."
+    )
+
 
 FEATURE_COLUMNS = [
     "timestamp",
@@ -28,8 +55,9 @@ GROUND_TRUTH_COLUMN = "flagged_fraud"
 
 
 def load_dataset():
+    data_path = resolve_data_path("fraud_dataset.csv")
     rows = []
-    with open(DATA_PATH, newline="") as f:
+    with open(data_path, newline="") as f:
         for row in csv.DictReader(f):
             rows.append(row)
 
