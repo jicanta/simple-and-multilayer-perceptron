@@ -133,6 +133,68 @@ class MultilayerPerceptron:
     def predict(self, X: np.ndarray) -> np.ndarray:
         return np.argmax(self.predict_proba(X), axis=1)
 
+    def input_gradients(
+        self,
+        X: np.ndarray,
+        class_idx: int,
+    ) -> np.ndarray:
+        """
+        Compute ∂output[class_idx] / ∂input for every sample in X.
+
+        The target neuron is seeded at the output layer and then propagated
+        backward through the network, mirroring the chain rule used in
+        backpropagation but stopping at the input space instead of accumulating
+        weight gradients.
+        """
+        activations = self.forward(X)
+        output = activations[-1]
+
+        delta = np.zeros_like(output)
+        delta[:, class_idx] = self._activate_derivative(output)[:, class_idx]
+
+        for layer_idx in range(len(self.weights) - 1, 0, -1):
+            weight = self.weights[layer_idx][:-1, :]
+            delta = (delta @ weight.T) * self._activate_derivative(activations[layer_idx])
+
+        first_weight = self.weights[0][:-1, :]
+        return delta @ first_weight.T
+
+    def attribution(
+        self,
+        X: np.ndarray,
+        class_idx: int,
+        method: str = "gradient_input",
+        baseline: np.ndarray | None = None,
+        steps: int = 32,
+    ) -> np.ndarray:
+        method_name = method.lower()
+        if method_name == "gradients":
+            return self.input_gradients(X, class_idx)
+        if method_name == "gradient_input":
+            return self.input_gradients(X, class_idx) * X
+        if method_name == "integrated_gradients":
+            if steps <= 0:
+                raise ValueError("Integrated gradients requires steps > 0.")
+            if baseline is None:
+                baseline = np.zeros_like(X)
+            else:
+                baseline = np.asarray(baseline, dtype=X.dtype)
+                if baseline.shape != X.shape:
+                    if baseline.ndim == 1 and baseline.shape[0] == X.shape[1]:
+                        baseline = np.broadcast_to(baseline, X.shape).copy()
+                    else:
+                        raise ValueError(
+                            "Baseline must have the same shape as X or shape (n_features,)."
+                        )
+
+            delta = X - baseline
+            total = np.zeros_like(X, dtype=np.float32)
+            for alpha in np.linspace(1.0 / steps, 1.0, steps, dtype=np.float32):
+                interpolated = baseline + alpha * delta
+                total += self.input_gradients(interpolated, class_idx)
+            return delta * (total / steps)
+        raise ValueError(f"Unsupported attribution method: {method}")
+
     def _backward(
         self,
         activations: list[np.ndarray],

@@ -117,6 +117,38 @@ Argumentos disponibles para corridas individuales:
 - `--name`: nombre explícito para guardar artefactos de esa corrida
 - `--evaluate-test`: evalúa en `digits_test.csv` solo si querés medir un modelo final ya elegido
 
+### Análisis opcional de Ejercicio 2
+
+Los opcionales de robustez al ruido e interpretabilidad quedaron separados del entrenamiento, para no mezclar la búsqueda de hiperparámetros con el análisis posterior del mejor modelo:
+
+```bash
+python3 exercise2/analysis.py
+python3 exercise2/analysis.py --model exercise2/models/mi_modelo.npz
+python3 exercise2/analysis.py --model exercise2/models/mi_modelo.npz --noise-levels 0,0.05,0.1,0.2,0.3,0.5
+python3 exercise2/analysis.py --model exercise2/models/mi_modelo.npz --attribution-methods gradient_input,integrated_gradients
+```
+
+Qué hace este script:
+
+- toma `digits_test.csv` y le agrega ruido gaussiano de distinta intensidad
+- mide cómo cae `accuracy` y `F1 macro` al aumentar `sigma`
+- guarda gráficos de robustez global y por clase en `exercise2/plots/`
+- genera mapas de atribución por dígito usando `Gradient·Input` e `Integrated Gradients`
+- visualiza los pesos de la primera capa para inspeccionar qué patrones aprendieron las neuronas ocultas
+- guarda un resumen reproducible en `exercise2/results/*_analysis.json`
+
+Argumentos principales:
+
+- `--model`: modelo `.npz` a analizar; si no se pasa, intenta usar el mejor de `summary.json`
+- `--noise-levels`: lista de sigmas separada por comas
+- `--noise-repeats`: cantidad de repeticiones por sigma para promediar el efecto del ruido
+- `--per-class-sigmas`: subconjunto de sigmas a mostrar en el gráfico por clase
+- `--attribution-methods`: `gradients`, `gradient_input`, `integrated_gradients`
+- `--integrated-steps`: pasos de interpolación para `Integrated Gradients`
+- `--max-samples-per-class`: máximo de ejemplos correctamente clasificados usados por clase
+- `--skip-noise`: saltea el análisis de robustez
+- `--skip-attribution`: saltea los mapas de atribución
+
 
 ### Reanudar entrenamiento de Ejercicio 2
 
