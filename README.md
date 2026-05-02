@@ -6,6 +6,7 @@
 - `validation/`: validaciones de las herramientas pedidas en el TP.
 - `exercise1/`: Ejercicio 1, distillation / fraude.
 - `exercise2/`: Ejercicio 2, clasificación de dígitos con perceptrón multicapa.
+- `exercise3/`: Ejercicio 3, mejora con más datos y manejo de desbalanceo de clases.
 
 
 ## Datasets
@@ -31,6 +32,8 @@ Archivos esperados:
 - `digits_test.csv`
 - `more_digits.csv`
 - `digit_dataset_loader.py`
+
+> **Nota:** `more_digits.csv` es el conjunto adicional utilizado en el Ejercicio 3 (`more_data_digits.csv` según la consigna del TP).
 
 ## Dependencias
 
@@ -171,6 +174,51 @@ Argumentos disponibles para reanudar:
 - `--extra-epochs`: épocas adicionales a entrenar
 - `--patience`: override opcional del early stopping durante la reanudación
 - `--evaluate-test`: evalúa en `digits_test.csv` después de reanudar si realmente querés medir generalización final
+
+### Ejercicio 3
+
+```bash
+python3 exercise3/train.py
+```
+
+Salida esperada:
+
+- exploración del dataset combinado (`digits.csv` + `more_digits.csv`)
+- distribución de clases y pesos de clase (inverse frequency)
+- tres experimentos comparados: `Baseline`, `Weighted Loss`, `Weighted Sampling`
+- métricas en entrenamiento, validación y `digits_test.csv` por experimento
+- modelos guardados en `exercise3/models/`
+- resultados en `exercise3/results/`
+- gráficos en `exercise3/plots/` si `matplotlib` está instalado
+
+### Análisis opcional de Ejercicio 3
+
+Análoga al análisis del Ejercicio 2, pero evaluando los tres modelos entrenados con `train.py`:
+
+```bash
+python3 exercise3/analysis.py
+python3 exercise3/analysis.py --noise-levels 0,0.1,0.3,0.5
+python3 exercise3/analysis.py --skip-noise
+python3 exercise3/analysis.py --skip-attribution
+```
+
+Qué hace este script:
+
+- evalúa los tres modelos del Ejercicio 3 bajo distintos niveles de ruido gaussiano
+- genera gráficos de robustez global y por clase en `exercise3/plots/`
+- genera mapas de saliencia (∂output/∂pixel) por dígito para cada modelo
+- visualiza los pesos de la primera capa de cada modelo
+- guarda resúmenes reproducibles en `exercise3/results/*_analysis.json`
+
+Argumentos disponibles:
+
+- `--noise-levels`: lista de sigmas separada por comas (default: `0,0.05,0.1,0.15,0.2,0.3,0.5,0.8,1.0`)
+- `--noise-repeats`: repeticiones por sigma para promediar el ruido (default: `3`)
+- `--per-class-sigmas`: subconjunto de sigmas para el gráfico por clase
+- `--max-samples-per-class`: máximo de muestras correctamente clasificadas por clase para atribución
+- `--seed`: semilla aleatoria
+- `--skip-noise`: saltea el análisis de robustez al ruido
+- `--skip-attribution`: saltea los mapas de saliencia y pesos
 
 ### Artefactos generados
 

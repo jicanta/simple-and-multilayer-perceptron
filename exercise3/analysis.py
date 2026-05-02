@@ -10,13 +10,22 @@ B. Attribution / Interpretability
    1. Saliency maps  — mean |∂output_k / ∂pixel_i| over correctly classified
       test samples, one map per digit class. Shows which pixels the model
       "looks at" to decide each digit.
-   2. First-layer weight visualization — each of the 128 hidden neurons' weight
-      vectors reshaped to 28×28. Shows the primitive patterns the hidden layer
+   2. First-layer weight visualization — each hidden neurons' weight
+      vector reshaped to 28×28. Shows the primitive patterns the hidden layer
       has learned to detect.
+
+Usage examples
+--------------
+    python3 exercise3/analysis.py
+    python3 exercise3/analysis.py --noise-levels 0,0.1,0.3,0.5
+    python3 exercise3/analysis.py --skip-noise
+    python3 exercise3/analysis.py --skip-attribution
+    python3 exercise3/analysis.py --noise-repeats 5 --seed 7
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -30,10 +39,11 @@ _EX2 = Path(__file__).resolve().parent.parent / "exercise2"
 sys.path.insert(0, str(_EX2))
 
 from mlp import MultilayerPerceptron  # noqa: E402
-from metrics import classification_metrics  # noqa: E402
+from metrics import classification_metrics, save_metrics_json  # noqa: E402
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 _MODEL_SLUGS = [
     ("1_baseline", "1-Baseline"),
@@ -42,7 +52,8 @@ _MODEL_SLUGS = [
 ]
 
 N_CLASSES = 10
-NOISE_LEVELS = [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.8, 1.0]
+DEFAULT_NOISE_LEVELS = [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.8, 1.0]
+DEFAULT_PER_CLASS_SIGMAS = [0.0, 0.2, 0.5, 1.0]
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +65,24 @@ def _section(title: str) -> None:
     print(f"\n{line}\n{title}\n{line}")
 
 
+def _parse_float_list(raw: str) -> list[float]:
+    try:
+        return [float(part.strip()) for part in raw.split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "Expected a comma-separated list of floats, e.g. 0,0.05,0.1,0.2."
+        ) from exc
+
+
 def _load_models() -> list[tuple[str, MultilayerPerceptron]]:
+    missing = [slug for slug, _ in _MODEL_SLUGS
+               if not (MODELS_DIR / f"{slug}.npz").exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Could not find the following Exercise 3 models in {MODELS_DIR}:\n"
+            + "\n".join(f"  {slug}.npz" for slug in missing)
+            + "\nRun `python3 exercise3/train.py` first."
+        )
     return [
         (label, MultilayerPerceptron.load(MODELS_DIR / f"{slug}.npz"))
         for slug, label in _MODEL_SLUGS
@@ -79,34 +107,41 @@ def run_noise_robustness(
     models: list[tuple[str, MultilayerPerceptron]],
     X_test: np.ndarray,
     y_test: np.ndarray,
+    noise_levels: list[float],
+    repeats: int,
     rng: np.random.Generator,
 ) -> dict:
     """Evaluate each model at each noise level. Returns nested results dict."""
     results: dict[str, dict] = {
-        label: {"sigma": NOISE_LEVELS, "accuracy": [], "f1": []}
+        label: {"sigma": noise_levels, "accuracy": [], "f1": [], "accuracy_std": [], "f1_std": []}
         for _, label in _MODEL_SLUGS
     }
 
     print(f"\n  {'sigma':>6} | " + " | ".join(f"{label:>22}" for _, label in _MODEL_SLUGS))
     print("  " + "-" * (10 + 27 * len(_MODEL_SLUGS)))
 
-    for sigma in NOISE_LEVELS:
-        noise = rng.normal(0.0, sigma, X_test.shape).astype(np.float32)
-        X_noisy = np.clip(X_test + noise, 0.0, 1.0)
-
+    for sigma in noise_levels:
         row = f"  {sigma:>6.2f} |"
         for label, model in models:
-            preds = model.predict(X_noisy)
-            m = classification_metrics(y_test, preds, num_classes=N_CLASSES)
-            results[label]["accuracy"].append(m["accuracy"])
-            results[label]["f1"].append(m["f1_macro"])
-            row += f" {label}: {m['accuracy']:>6.2%} F1={m['f1_macro']:.4f} |"
+            acc_runs, f1_runs = [], []
+            for _ in range(repeats):
+                noise = rng.normal(0.0, sigma, X_test.shape).astype(np.float32)
+                X_noisy = np.clip(X_test + noise, 0.0, 1.0)
+                preds = model.predict(X_noisy)
+                m = classification_metrics(y_test, preds, num_classes=N_CLASSES)
+                acc_runs.append(m["accuracy"])
+                f1_runs.append(m["f1_macro"])
+            results[label]["accuracy"].append(float(np.mean(acc_runs)))
+            results[label]["accuracy_std"].append(float(np.std(acc_runs)))
+            results[label]["f1"].append(float(np.mean(f1_runs)))
+            results[label]["f1_std"].append(float(np.std(f1_runs)))
+            row += f" {label}: {np.mean(acc_runs):>6.2%} F1={np.mean(f1_runs):.4f} |"
         print(row)
 
     return results
 
 
-def plot_noise_curves(results: dict) -> None:
+def plot_noise_curves(results: dict, noise_levels: list[float]) -> None:
     plt = _plt()
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -115,9 +150,9 @@ def plot_noise_curves(results: dict) -> None:
 
     for (_, label), color in zip(_MODEL_SLUGS, colors):
         r = results[label]
-        axes[0].plot(r["sigma"], [a * 100 for a in r["accuracy"]],
+        axes[0].plot(noise_levels, [a * 100 for a in r["accuracy"]],
                      marker="o", label=label, color=color)
-        axes[1].plot(r["sigma"], r["f1"],
+        axes[1].plot(noise_levels, r["f1"],
                      marker="o", label=label, color=color)
 
     for ax, ylabel, title in zip(
@@ -145,7 +180,7 @@ def plot_noise_per_class(
     X_test: np.ndarray,
     y_test: np.ndarray,
     rng: np.random.Generator,
-    sigmas: tuple[float, ...] = (0.0, 0.2, 0.5, 1.0),
+    sigmas: list[float],
 ) -> None:
     plt = _plt()
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -162,15 +197,16 @@ def plot_noise_per_class(
         per_class[sigma] = accs
 
     x = np.arange(N_CLASSES)
-    width = 0.18
-    colors = ["tab:blue", "tab:orange", "tab:red", "tab:purple"]
+    width = 0.8 / max(1, len(sigmas))
+    colors = ["tab:blue", "tab:orange", "tab:red", "tab:purple", "tab:green"]
 
     fig, ax = plt.subplots(figsize=(11, 5))
     for i, (sigma, color) in enumerate(zip(sigmas, colors)):
         ax.bar(x + i * width, per_class[sigma], width,
                label=f"σ={sigma}", color=color, alpha=0.85)
 
-    ax.set_xticks(x + width * (len(sigmas) - 1) / 2)
+    center = width * (len(sigmas) - 1) / 2
+    ax.set_xticks(x + center)
     ax.set_xticklabels([str(c) for c in range(N_CLASSES)])
     ax.set_xlabel("Digit class")
     ax.set_ylabel("Per-class accuracy")
@@ -207,19 +243,16 @@ def compute_saliency(
     """
     activations = model.forward(X)
 
-    # Seed the delta at the output: f'(a_out) at class_idx, zeros elsewhere
     a_out = activations[-1]                      # (batch, 10)
     delta = np.zeros_like(a_out)
     delta[:, class_idx] = model._activate_derivative(a_out)[:, class_idx]
 
-    # Propagate backward through all hidden layers (stop before input)
     n_layers = len(model.weights)
     for layer_idx in range(n_layers - 1, 0, -1):
         W = model.weights[layer_idx][:-1, :]     # drop bias row: (in, out)
         delta_prev = delta @ W.T                  # (batch, in)
         delta = delta_prev * model._activate_derivative(activations[layer_idx])
 
-    # Project from first hidden layer back to input pixels
     W0 = model.weights[0][:-1, :]               # (784, hidden)
     saliency = delta @ W0.T                      # (batch, 784)
     return saliency
@@ -229,6 +262,7 @@ def plot_saliency_maps(
     models: list[tuple[str, MultilayerPerceptron]],
     X_test: np.ndarray,
     y_test: np.ndarray,
+    max_per_class: int,
 ) -> None:
     plt = _plt()
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -236,12 +270,11 @@ def plot_saliency_maps(
     for label, model in models:
         fig, axes = plt.subplots(2, 5, figsize=(14, 6))
         axes_flat = axes.flatten()
+        preds = model.predict(X_test)
 
         for cls in range(N_CLASSES):
-            # Only correctly classified samples
-            preds = model.predict(X_test)
             mask = (y_test == cls) & (preds == cls)
-            X_cls = X_test[mask]
+            X_cls = X_test[mask][:max_per_class]
 
             ax = axes_flat[cls]
             if len(X_cls) == 0:
@@ -249,7 +282,7 @@ def plot_saliency_maps(
                 ax.axis("off")
                 continue
 
-            sal = compute_saliency(model, X_cls, cls)   # (n, 784)
+            sal = compute_saliency(model, X_cls, cls)
             mean_sal = np.abs(sal).mean(axis=0).reshape(28, 28)
 
             im = ax.imshow(mean_sal, cmap="hot", interpolation="nearest")
@@ -277,14 +310,14 @@ def plot_first_layer_weights(
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     for label, model in models:
-        W = model.weights[0][:-1, :]   # (784, 128) — drop bias row
+        W = model.weights[0][:-1, :]   # (784, hidden) — drop bias row
         n_hidden = W.shape[1]
         ncols = 16
         nrows = (n_hidden + ncols - 1) // ncols
         vmax = np.abs(W).max()
 
         fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 1.1, nrows * 1.1))
-        axes_flat = axes.flatten()
+        axes_flat = np.atleast_1d(axes).flatten()
 
         for i in range(n_hidden):
             axes_flat[i].imshow(
@@ -301,7 +334,7 @@ def plot_first_layer_weights(
 
         slug = label.lower().replace(" ", "_").replace("-", "_")
         fig.suptitle(
-            f"Ex3 — {label} — First-layer weights (128 neurons, 28×28 receptive fields)\n"
+            f"Ex3 — {label} — First-layer weights ({n_hidden} neurons, 28×28 receptive fields)\n"
             "Red = positive weight, Blue = negative weight",
             fontsize=9,
         )
@@ -313,11 +346,73 @@ def plot_first_layer_weights(
 
 
 # ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Exercise 3 — Optional analysis (noise robustness + interpretability)"
+    )
+    parser.add_argument(
+        "--noise-levels",
+        type=_parse_float_list,
+        default=DEFAULT_NOISE_LEVELS,
+        help=(
+            "Comma-separated Gaussian noise sigmas to evaluate. "
+            f"Default: {','.join(str(s) for s in DEFAULT_NOISE_LEVELS)}"
+        ),
+    )
+    parser.add_argument(
+        "--noise-repeats",
+        type=int,
+        default=3,
+        help="Noisy realizations to average per sigma (default: 3).",
+    )
+    parser.add_argument(
+        "--per-class-sigmas",
+        type=_parse_float_list,
+        default=DEFAULT_PER_CLASS_SIGMAS,
+        help=(
+            "Subset of sigmas shown in the per-class breakdown plot. "
+            f"Default: {','.join(str(s) for s in DEFAULT_PER_CLASS_SIGMAS)}"
+        ),
+    )
+    parser.add_argument(
+        "--max-samples-per-class",
+        type=int,
+        default=100,
+        help="Max correctly-classified test samples per class used for saliency maps (default: 100).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for noise generation (default: 42).",
+    )
+    parser.add_argument(
+        "--skip-noise",
+        action="store_true",
+        help="Skip the noise-robustness analysis.",
+    )
+    parser.add_argument(
+        "--skip-attribution",
+        action="store_true",
+        help="Skip saliency maps and first-layer weight visualizations.",
+    )
+    return parser.parse_args()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    rng = np.random.default_rng(42)
+    args = parse_args()
+
+    if args.noise_repeats <= 0:
+        raise ValueError("--noise-repeats must be greater than 0.")
+
+    rng = np.random.default_rng(args.seed)
 
     print("Loading data...")
     X_all, _ = load_combined()      # training data — used to fit the scaler
@@ -336,25 +431,48 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------
     # A. Noise robustness
     # -------------------------------------------------------------------
-    _section("A — Noise Robustness")
-    noise_results = run_noise_robustness(models, X_test, y_test, rng)
-    plot_noise_curves(noise_results)
+    if not args.skip_noise:
+        _section("A — Noise Robustness")
+        print(f"  noise levels : {args.noise_levels}")
+        print(f"  repeats/sigma: {args.noise_repeats}")
 
-    # Per-class breakdown for the best model (weighted sampling)
-    best_label, best_model = models[-1]
-    print(f"\n  Per-class breakdown for best model ({best_label}):")
-    plot_noise_per_class(best_model, best_label, X_test, y_test, rng)
+        noise_results = run_noise_robustness(
+            models, X_test, y_test,
+            noise_levels=args.noise_levels,
+            repeats=args.noise_repeats,
+            rng=rng,
+        )
+        plot_noise_curves(noise_results, args.noise_levels)
+
+        # Per-class breakdown for the best model (weighted sampling)
+        best_label, best_model = models[-1]
+        print(f"\n  Per-class breakdown for best model ({best_label}):")
+        plot_noise_per_class(
+            best_model, best_label, X_test, y_test, rng,
+            sigmas=args.per_class_sigmas,
+        )
+
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        save_metrics_json(
+            RESULTS_DIR / "noise_robustness.json",
+            {"noise_levels": args.noise_levels, "repeats": args.noise_repeats, "results": noise_results},
+        )
+    else:
+        print("\n  [skipped] noise robustness (--skip-noise)")
 
     # -------------------------------------------------------------------
     # B. Attribution / Interpretability
     # -------------------------------------------------------------------
-    _section("B — Attribution / Interpretability")
+    if not args.skip_attribution:
+        _section("B — Attribution / Interpretability")
 
-    print("\n  Saliency maps (all 3 models)...")
-    plot_saliency_maps(models, X_test, y_test)
+        print("\n  Saliency maps (all 3 models)...")
+        plot_saliency_maps(models, X_test, y_test, max_per_class=args.max_samples_per_class)
 
-    print("\n  First-layer weight visualizations (all 3 models)...")
-    plot_first_layer_weights(models)
+        print("\n  First-layer weight visualizations (all 3 models)...")
+        plot_first_layer_weights(models)
+    else:
+        print("\n  [skipped] attribution / interpretability (--skip-attribution)")
 
     _section("Done")
     print("  All plots saved to exercise3/plots/\n")
