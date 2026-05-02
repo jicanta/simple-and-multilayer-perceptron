@@ -55,6 +55,7 @@ pip install matplotlib pandas
 
 ```bash
 python3 validation/single-layer-step-perceptron.py
+python3 validation/single-layer-step-perceptron.py --xor
 python3 validation/single-layer-linear-perceptron.py
 python3 validation/single-layer-non-linear-perceptron.py
 python3 validation/multi-layer-perceptron.py

@@ -18,9 +18,14 @@ def update_weights(x, y, w, b):
     return w, b
 
 
-def build_dataset():
+def build_dataset(logical_gate="and"):
     x = np.array([[-1, -1], [-1, 1], [1, -1], [1, 1]])
-    y = np.array([-1, -1, -1, 1])
+    if logical_gate == "and":
+        y = np.array([-1, -1, -1, 1])
+    elif logical_gate == "xor":
+        y = np.array([-1, 1, 1, -1])
+    else:
+        raise ValueError(f"Unsupported logical gate: {logical_gate}")
     return x, y
 
 
@@ -67,7 +72,7 @@ def run_validation():
     evaluation = evaluate_model(x, y, w, b)
 
     print_named_values(
-        "Step Perceptron",
+        "Step Perceptron (AND)",
         {
             "weights": w,
             "bias": b,
@@ -77,7 +82,7 @@ def run_validation():
     )
 
     print_table(
-        "Validation",
+        "Validation (AND)",
         ["x", "expected", "predicted", "correct"],
         evaluation["rows"],
     )
@@ -101,5 +106,53 @@ def run_validation():
     }
 
 
+def run_xor_comparison():
+    print("\n" + "=" * 50)
+    print("Testing Step Perceptron on XOR")
+    print("=" * 50)
+    x, y = build_dataset("xor")
+    w, b, errors_by_epoch = train_model(x, y)
+    evaluation = evaluate_model(x, y, w, b)
+
+    print_named_values(
+        "Step Perceptron (XOR)",
+        {
+            "weights": w,
+            "bias": b,
+            "epochs": len(errors_by_epoch),
+            "final_accuracy": f"{evaluation['accuracy']:.2%}",
+        },
+    )
+
+    print_table(
+        "Validation (XOR)",
+        ["x", "expected", "predicted", "correct"],
+        evaluation["rows"],
+    )
+
+    print("\nNote: The Step Perceptron cannot solve the XOR problem because it is not linearly separable.")
+    print("It reaches the maximum number of epochs without converging (errors > 0 in the last epoch).")
+    print("Compare this with the Multi Layer Perceptron, which successfully solves XOR.")
+
+    plot_path = save_classification_plot(
+        "single-layer-step-perceptron-xor.png",
+        x,
+        y,
+        evaluation["predictions"],
+        "Step Perceptron - XOR (Fails)",
+    )
+
+    if plot_path is not None:
+        print(f"\nplot: {plot_path}")
+
+
 if __name__ == "__main__":
-    run_validation()
+    import argparse
+    parser = argparse.ArgumentParser(description="Step Perceptron Validation")
+    parser.add_argument("--xor", action="store_true", help="Run the XOR comparison instead of AND")
+    args = parser.parse_args()
+
+    if args.xor:
+        run_xor_comparison()
+    else:
+        run_validation()
