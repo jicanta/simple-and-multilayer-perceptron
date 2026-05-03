@@ -75,6 +75,35 @@ Salida esperada:
 - comparación perceptrón lineal vs no lineal
 - estudio de generalización
 - recomendación de threshold
+- gráficos en `exercise1/plots/` si `matplotlib` está instalado
+- datos para la visualización principal en `exercise1/visualizations/data/`
+
+### Visualización principal de Ejercicio 1
+
+Para regenerar los datos que consume la visualización:
+
+```bash
+python3 exercise1/train.py
+```
+
+Para renderizar la animación de Manim:
+
+```bash
+bash exercise1/visualizations/manim/render_final_model.sh
+```
+
+Salida esperada:
+
+- datos exportados en `exercise1/visualizations/data/final_model_overview.json`
+- video renderizado en `exercise1/visualizations/renders/videos/final_model_scene/1080p60/Exercise1FinalModelOverview.mp4`
+
+Para abrir el video generado:
+
+```bash
+xdg-open exercise1/visualizations/renders/videos/final_model_scene/1080p60/Exercise1FinalModelOverview.mp4
+```
+
+> **Nota:** el script usa la imagen Docker `manimcommunity/manim:stable`, así que no hace falta instalar Manim localmente.
 
 ### Ejercicio 2
 
@@ -228,3 +257,4 @@ Durante las corridas, el proyecto puede generar archivos auxiliares:
 - `results/`: sirven para comparar experimentos y conservar métricas.
 - `models/`: sirven para reutilizar pesos entrenados sin volver a entrenar desde cero.
 - `plots/`: sirven para análisis visual de loss, accuracy o matrices de confusión.
+- `visualizations/`: sirven para exportar datos y renderizar animaciones de Manim del modelo final.

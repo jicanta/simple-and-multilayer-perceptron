@@ -12,13 +12,16 @@ from data import (
 )
 from perceptron import LinearPerceptron, NonLinearPerceptron, sigmoid
 from plots import (
+    save_confusion_matrix,
     save_activation_comparison,
     save_calibration_plot,
     save_feature_engineering_plot,
     save_loss_comparison,
+    save_precision_recall_curve,
     save_roc_curve,
     save_threshold_analysis,
 )
+from visualization_data import save_final_model_visualization_data
 
 
 EPOCHS = 200
@@ -26,6 +29,9 @@ LEARNING_RATE = 0.01
 BATCH_SIZE = 64
 K_FOLDS = 5
 TRAIN_RATIO = 0.8
+FINAL_MODEL_TRAIN_RATIO = 0.70
+FINAL_MODEL_VALIDATION_RATIO = 0.15
+FINAL_MODEL_VISUALIZATION_DATA = "final_model_overview.json"
 
 
 def _section(title: str) -> None:
@@ -60,6 +66,7 @@ def compute_metrics(
         "fp": fp,
         "tn": tn,
         "fn": fn,
+        "confusion_matrix": np.array([[tn, fp], [fn, tp]], dtype=np.int64),
     }
 
 
@@ -134,46 +141,120 @@ def run_generalization_study(X: np.ndarray, y: np.ndarray, ground_truth: np.ndar
 def run_final_model(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) -> None:
     _section("Part 3: Final Model + Threshold Recommendation")
 
-    X_tr, y_tr, gt_tr, X_te, y_te, gt_te = train_test_split(
-        X, y, ground_truth, train_ratio=TRAIN_RATIO
+    X_tr, y_tr, gt_tr, X_hold, y_hold, gt_hold = train_test_split(
+        X, y, ground_truth, train_ratio=FINAL_MODEL_TRAIN_RATIO
+    )
+    X_val, y_val, gt_val, X_te, y_te, gt_te = train_test_split(
+        X_hold,
+        y_hold,
+        gt_hold,
+        train_ratio=FINAL_MODEL_VALIDATION_RATIO / (1.0 - FINAL_MODEL_TRAIN_RATIO),
+        seed=43,
     )
     scaler = StandardScaler()
     X_tr_s = scaler.fit_transform(X_tr)
+    X_val_s = scaler.transform(X_val)
     X_te_s = scaler.transform(X_te)
 
-    print(f"\n  Train: {len(X_tr)} samples  Test: {len(X_te)} samples")
+    print(
+        f"\n  Train: {len(X_tr)} samples  "
+        f"Validation: {len(X_val)} samples  Test: {len(X_te)} samples"
+    )
     print(f"  Training NonLinearPerceptron (epochs={EPOCHS}, lr={LEARNING_RATE}, batch={BATCH_SIZE})")
 
     model = NonLinearPerceptron(learning_rate=LEARNING_RATE, epochs=EPOCHS, batch_size=BATCH_SIZE)
     model.fit(X_tr_s, y_tr, verbose=True)
 
+    y_tr_pred = model.predict(X_tr_s)
+    y_val_pred = model.predict(X_val_s)
     y_te_pred = model.predict(X_te_s)
 
-    roc_path, auc = save_roc_curve(
-        "roc_curve.png", gt_te, y_te_pred, "Non-Linear Perceptron — ROC Curve"
-    )
     thresh_path, best_thresh = save_threshold_analysis(
         "threshold_analysis.png",
-        gt_te,
-        y_te_pred,
-        "Non-Linear Perceptron — Threshold Analysis",
+        gt_val,
+        y_val_pred,
+        "Non-Linear Perceptron — Threshold Analysis (validation)",
     )
 
-    m = compute_metrics(y_te, y_te_pred, gt_te, threshold=best_thresh)
+    train_metrics = compute_metrics(y_tr, y_tr_pred, gt_tr, threshold=best_thresh)
+    val_metrics = compute_metrics(y_val, y_val_pred, gt_val, threshold=best_thresh)
+    test_metrics = compute_metrics(y_te, y_te_pred, gt_te, threshold=best_thresh)
 
-    print(f"\n  ROC-AUC:              {auc:.4f}")
-    print(f"  Recommended threshold (max F1): {best_thresh:.4f}")
-    print(f"  MSE:        {m['mse']:.6f}")
-    print(f"  MAE:        {m['mae']:.6f}")
-    print(f"  Accuracy:   {m['accuracy']:.2%}")
-    print(f"  Precision:  {m['precision']:.4f}")
-    print(f"  Recall:     {m['recall']:.4f}")
-    print(f"  F1:         {m['f1']:.4f}")
-    print(f"  TP={m['tp']}  FP={m['fp']}  TN={m['tn']}  FN={m['fn']}")
+    roc_path, auc = save_roc_curve(
+        "roc_curve.png", gt_te, y_te_pred, "Non-Linear Perceptron — ROC Curve (test)"
+    )
+    pr_path, pr_auc = save_precision_recall_curve(
+        "precision_recall_curve.png",
+        gt_te,
+        y_te_pred,
+        "Non-Linear Perceptron — Precision-Recall Curve (test)",
+    )
 
-    for path in (roc_path, thresh_path):
+    cm_path = save_confusion_matrix(
+        "confusion_matrix.png",
+        test_metrics["confusion_matrix"],
+        "Non-Linear Perceptron — Test Confusion Matrix",
+    )
+    visualization_data_path = save_final_model_visualization_data(
+        FINAL_MODEL_VISUALIZATION_DATA,
+        feature_names=list(FEATURE_COLUMNS),
+        weights=model.w,
+        bias=model.b,
+        activation=model.activation,
+        hyperparameters={
+            "learning_rate": LEARNING_RATE,
+            "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE,
+            "normalization": "zscore",
+            "teacher_target": "big_model_fraud_probability",
+            "decision_target": "flagged_fraud",
+        },
+        split_sizes={
+            "train": len(X_tr),
+            "validation": len(X_val),
+            "test": len(X_te),
+        },
+        threshold=best_thresh,
+        train_metrics=train_metrics,
+        validation_metrics=val_metrics,
+        test_metrics=test_metrics,
+        test_roc_auc=auc,
+        test_pr_auc=pr_auc,
+    )
+
+    print(f"\n  Recommended threshold (max validation F1): {best_thresh:.4f}")
+    print(f"  Test ROC-AUC: {auc:.4f}")
+    print(f"  Test PR-AUC:  {pr_auc:.4f}")
+
+    print(f"\n  {'Split':<12} {'MSE':>10} {'MAE':>10} {'Acc':>9} {'Prec':>9} {'Recall':>9} {'F1':>9}")
+    print("  " + "-" * 72)
+    for split_name, metrics in (
+        ("Train", train_metrics),
+        ("Validation", val_metrics),
+        ("Test", test_metrics),
+    ):
+        print(
+            f"  {split_name:<12} {metrics['mse']:>10.6f} {metrics['mae']:>10.6f} "
+            f"{metrics['accuracy']:>8.2%} {metrics['precision']:>9.4f} "
+            f"{metrics['recall']:>9.4f} {metrics['f1']:>9.4f}"
+        )
+
+    print("\n  Test confusion matrix (rows=actual [0,1], cols=predicted [0,1]):")
+    print(f"{test_metrics['confusion_matrix']}")
+    print(
+        f"  TP={test_metrics['tp']}  FP={test_metrics['fp']}  "
+        f"TN={test_metrics['tn']}  FN={test_metrics['fn']}"
+    )
+
+    print(
+        "\n  Protocol note: threshold selection is performed on the validation split, "
+        "while the test split is used only once for the final report."
+    )
+
+    for path in (roc_path, pr_path, thresh_path, cm_path):
         if path:
             print(f"  plot: {path}")
+    print(f"  manim data: {visualization_data_path}")
 
 
 EXTENDED_EPOCHS = 1000
@@ -279,7 +360,8 @@ def run_best_training_set(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray
     print(f"  Accuracy={m['accuracy']:.2%}  TP={m['tp']}  FP={m['fp']}  TN={m['tn']}  FN={m['fn']}")
     print(
         f"\n  Recommended threshold for deployment: use the value found in Part 3\n"
-        f"  (trained on 80%, evaluated on held-out 20%) as the unbiased estimate."
+        f"  (trained on 70%, selected on 15% validation, evaluated once on 15% test)\n"
+        f"  as the unbiased estimate."
     )
 
 
@@ -543,8 +625,8 @@ def run_relu_comparison(X: np.ndarray, y: np.ndarray, ground_truth: np.ndarray) 
         "\n  · ReLU avoids saturation — gradient is constant (1) for active neurons."
         "\n  · ReLU risk: neurons with negative pre-activation get zero gradient ('dying ReLU')."
         "\n  · ReLU outputs are unbounded; threshold search must cover the actual output range."
-        "\n  · For single-layer binary classification, sigmoid is generally preferred as it"
-        "\n    produces calibrated probabilities and avoids the dead-neuron problem."
+        "\n  · For single-layer binary classification, sigmoid is often easier to work with"
+        "\n    because it keeps scores in [0, 1]; calibration, however, still has to be verified."
     )
 
 

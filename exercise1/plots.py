@@ -23,6 +23,14 @@ def _dir() -> Path:
     return PLOTS_DIR
 
 
+def _trapezoid_area(y: np.ndarray, x: np.ndarray) -> float:
+    if hasattr(np, "trapezoid"):
+        return float(np.trapezoid(y, x))
+    if hasattr(np, "trapz"):
+        return float(np.trapz(y, x))
+    return float(np.sum((x[1:] - x[:-1]) * (y[1:] + y[:-1]) * 0.5))
+
+
 def save_loss_comparison(
     filename: str, linear_losses: list[float], nonlinear_losses: list[float]
 ) -> Path | None:
@@ -76,11 +84,11 @@ def save_roc_curve(
         fn = int(((preds == 0) & (y_true == 1)).sum())
         tprs.append(tp / (tp + fn) if (tp + fn) > 0 else 0.0)
         fprs.append(fp / (fp + tn) if (fp + tn) > 0 else 0.0)
-
+    
     fprs_arr = np.array(fprs)
     tprs_arr = np.array(tprs)
     order = np.argsort(fprs_arr)
-    auc = float(np.trapz(tprs_arr[order], fprs_arr[order]))
+    auc = _trapezoid_area(tprs_arr[order], fprs_arr[order])
 
     if plt is None:
         return None, auc
@@ -98,6 +106,79 @@ def save_roc_curve(
     fig.savefig(path)
     plt.close(fig)
     return path, auc
+
+
+def save_precision_recall_curve(
+    filename: str, y_true: np.ndarray, y_scores: np.ndarray, title: str
+) -> tuple[Path | None, float]:
+    plt = _plt()
+
+    thresholds = np.linspace(0, 1, 300)
+    precisions, recalls = [], []
+    for thresh in thresholds:
+        preds = (y_scores >= thresh).astype(int)
+        tp = int(((preds == 1) & (y_true == 1)).sum())
+        fp = int(((preds == 1) & (y_true == 0)).sum())
+        fn = int(((preds == 0) & (y_true == 1)).sum())
+        precisions.append(tp / (tp + fp) if (tp + fp) > 0 else 1.0)
+        recalls.append(tp / (tp + fn) if (tp + fn) > 0 else 0.0)
+
+    recalls_arr = np.array(recalls)
+    precisions_arr = np.array(precisions)
+    order = np.argsort(recalls_arr)
+    pr_auc = _trapezoid_area(precisions_arr[order], recalls_arr[order])
+
+    if plt is None:
+        return None, pr_auc
+
+    path = _dir() / filename
+    fig, ax = plt.subplots()
+    ax.plot(recalls, precisions, color="tab:purple", label=f"PR-AUC = {pr_auc:.4f}")
+    ax.axhline(float(np.mean(y_true)), color="tab:gray", linestyle="--", alpha=0.6, label="class prevalence")
+    ax.set_title(title)
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.05)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path, pr_auc
+
+
+def save_confusion_matrix(
+    filename: str, matrix: np.ndarray, title: str
+) -> Path | None:
+    plt = _plt()
+    if plt is None:
+        return None
+
+    path = _dir() / filename
+    fig, ax = plt.subplots(figsize=(5.5, 4.8))
+    image = ax.imshow(matrix, cmap="Blues")
+    fig.colorbar(image, ax=ax)
+
+    ax.set_title(title)
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("Actual label")
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["Not fraud", "Fraud"])
+    ax.set_yticks([0, 1])
+    ax.set_yticklabels(["Not fraud", "Fraud"])
+
+    total = matrix.sum()
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            value = int(matrix[i, j])
+            pct = 100.0 * value / total if total > 0 else 0.0
+            ax.text(j, i, f"{value}\n({pct:.1f}%)", ha="center", va="center", fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path
 
 
 def save_calibration_plot(

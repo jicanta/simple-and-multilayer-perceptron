@@ -15,4 +15,9 @@ exercise2/results/
 exercise2/models/
 exercise2/plots/
 
+exercise1/plots/
+exercise1/visualizations/data/
+exercise1/visualizations/renders/*
+!exercise1/visualizations/renders/.gitkeep
+
 validation/plots/
