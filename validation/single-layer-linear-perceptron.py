@@ -35,8 +35,10 @@ def f(x, w, b):
 
 
 def update_weights(x, error, w, b):
+    # technically there is a theta' term hidden here
+    # in this as the activation function is the identity, this term equals 1
     b = b + LEARNING_RATE * error
-    w = w + LEARNING_RATE * error * x
+    w = w + LEARNING_RATE * error * x 
     return w, b
 
 
