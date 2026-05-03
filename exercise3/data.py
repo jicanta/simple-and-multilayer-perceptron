@@ -20,6 +20,7 @@ print_dataset_overview = _ex2_data.print_dataset_overview
 train_validation_split = _ex2_data.train_validation_split
 
 N_CLASSES = 10
+IMAGE_SIDE = 28
 
 
 def load_combined() -> tuple[np.ndarray, np.ndarray]:
@@ -31,6 +32,76 @@ def load_combined() -> tuple[np.ndarray, np.ndarray]:
 
 def load_test() -> tuple[np.ndarray, np.ndarray]:
     return load_digits_dataset("digits_test.csv")
+
+
+def stratified_train_validation_split(
+    X: np.ndarray,
+    y: np.ndarray,
+    validation_ratio: float = 0.15,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+    train_parts: list[np.ndarray] = []
+    val_parts: list[np.ndarray] = []
+
+    for class_idx in range(N_CLASSES):
+        class_indices = np.flatnonzero(y == class_idx)
+        class_indices = rng.permutation(class_indices)
+        split = int(len(class_indices) * (1.0 - validation_ratio))
+        train_parts.append(class_indices[:split])
+        val_parts.append(class_indices[split:])
+
+    train_idx = rng.permutation(np.concatenate(train_parts))
+    val_idx = rng.permutation(np.concatenate(val_parts))
+    return X[train_idx], y[train_idx], X[val_idx], y[val_idx]
+
+
+def _shift_image(flat_image: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    image = flat_image.reshape(IMAGE_SIDE, IMAGE_SIDE)
+    shifted = np.roll(image, shift=(dy, dx), axis=(0, 1))
+
+    if dy > 0:
+        shifted[:dy, :] = 0.0
+    elif dy < 0:
+        shifted[dy:, :] = 0.0
+
+    if dx > 0:
+        shifted[:, :dx] = 0.0
+    elif dx < 0:
+        shifted[:, dx:] = 0.0
+
+    return shifted.reshape(-1)
+
+
+def augment_images(
+    X: np.ndarray,
+    y: np.ndarray,
+    repeats: int = 1,
+    shift_max: int = 2,
+    noise_std: float = 0.03,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    if repeats <= 0:
+        return X.astype(np.float32, copy=True), y.astype(np.int64, copy=True)
+
+    rng = np.random.default_rng(seed)
+    augmented_batches = [X.astype(np.float32, copy=True)]
+    augmented_labels = [y.astype(np.int64, copy=True)]
+
+    for _ in range(repeats):
+        X_aug = np.empty_like(X, dtype=np.float32)
+        for idx, sample in enumerate(X):
+            dx = int(rng.integers(-shift_max, shift_max + 1))
+            dy = int(rng.integers(-shift_max, shift_max + 1))
+            aug = _shift_image(sample, dx=dx, dy=dy)
+            if noise_std > 0.0:
+                aug = np.clip(aug + rng.normal(0.0, noise_std, size=aug.shape), 0.0, 1.0)
+            X_aug[idx] = aug.astype(np.float32)
+
+        augmented_batches.append(X_aug)
+        augmented_labels.append(y.astype(np.int64, copy=True))
+
+    return np.vstack(augmented_batches), np.concatenate(augmented_labels)
 
 
 def compute_class_weights(y: np.ndarray) -> np.ndarray:

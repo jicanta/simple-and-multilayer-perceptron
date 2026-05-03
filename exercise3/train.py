@@ -11,6 +11,7 @@ All three are evaluated on digits_test.csv (held-out, never touched during train
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 from time import perf_counter
@@ -19,6 +20,7 @@ import numpy as np
 
 # exercise3/data.py (local)
 from data import (  # noqa: E402
+    augment_images,
     build_scaler,
     compute_class_weights,
     load_combined,
@@ -26,7 +28,7 @@ from data import (  # noqa: E402
     print_class_weights,
     print_combined_eda,
     print_dataset_overview,
-    train_validation_split,
+    stratified_train_validation_split,
 )
 
 # exercise2 modules loaded via explicit path to avoid name collisions
@@ -43,14 +45,21 @@ MODELS_DIR = Path(__file__).resolve().parent / "models"
 PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 
 # Best hyperparameters found in Exercise 2
-ARCHITECTURE = [784, 128, 10]
+ARCHITECTURE = [784, 256, 128, 10]
 LEARNING_RATE = 0.001
 OPTIMIZER = "adam"
 BATCH_SIZE = 128
-EPOCHS = 150
-PATIENCE = 20
+HIDDEN_ACTIVATION = "leaky_relu"
+OUTPUT_ACTIVATION = "logistic"
+LEAKY_RELU_SLOPE = 0.01
+L2_LAMBDA = 1e-4
+EPOCHS = 180
+PATIENCE = 24
 VALIDATION_RATIO = 0.15
 NORMALIZATION = "minmax"
+AUGMENT_REPEATS = 1
+AUGMENT_SHIFT_MAX = 2
+AUGMENT_NOISE_STD = 0.03
 
 
 def _section(title: str) -> None:
@@ -81,6 +90,7 @@ def run_experiment(
     y_val: np.ndarray,
     X_test: np.ndarray,
     y_test: np.ndarray,
+    scaler_metadata: dict | None,
     class_weights: np.ndarray | None = None,
     use_weighted_sampling: bool = False,
 ) -> dict:
@@ -92,15 +102,21 @@ def run_experiment(
     )
     print(f"  mode            : {mode}")
     print(f"  architecture    : {ARCHITECTURE}")
+    print(f"  activation      : hidden={HIDDEN_ACTIVATION} output={OUTPUT_ACTIVATION}")
     print(f"  optimizer/lr    : {OPTIMIZER} / {LEARNING_RATE}")
+    print(f"  l2 lambda       : {L2_LAMBDA}")
     print(f"  epochs (max)    : {EPOCHS}  patience={PATIENCE}")
     print(f"  train / val     : {len(X_train)} / {len(X_val)}\n")
 
     model = MultilayerPerceptron(
         layer_sizes=ARCHITECTURE,
         learning_rate=LEARNING_RATE,
+        activation=HIDDEN_ACTIVATION,
+        output_activation=OUTPUT_ACTIVATION,
         optimizer=OPTIMIZER,
         batch_size=BATCH_SIZE,
+        l2_lambda=L2_LAMBDA,
+        leaky_relu_slope=LEAKY_RELU_SLOPE,
         seed=42,
     )
 
@@ -139,7 +155,30 @@ def run_experiment(
     slug = name.lower().replace(" ", "_").replace("-", "_")
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    model.save(MODELS_DIR / slug)
+    model.save(
+        MODELS_DIR / slug,
+        metadata={
+            "config": {
+                "architecture": ARCHITECTURE,
+                "learning_rate": LEARNING_RATE,
+                "optimizer": OPTIMIZER,
+                "batch_size": BATCH_SIZE,
+                "hidden_activation": HIDDEN_ACTIVATION,
+                "output_activation": OUTPUT_ACTIVATION,
+                "leaky_relu_slope": LEAKY_RELU_SLOPE,
+                "l2_lambda": L2_LAMBDA,
+                "epochs": EPOCHS,
+                "patience": PATIENCE,
+                "normalization": NORMALIZATION,
+                "augment_repeats": AUGMENT_REPEATS,
+                "augment_shift_max": AUGMENT_SHIFT_MAX,
+                "augment_noise_std": AUGMENT_NOISE_STD,
+            },
+            "scaler": scaler_metadata,
+            "best_epoch": model.best_epoch,
+            "mode": mode,
+        },
+    )
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     save_metrics_json(
@@ -147,6 +186,22 @@ def run_experiment(
         {
             "name": name,
             "mode": mode,
+            "config": {
+                "architecture": ARCHITECTURE,
+                "learning_rate": LEARNING_RATE,
+                "optimizer": OPTIMIZER,
+                "batch_size": BATCH_SIZE,
+                "hidden_activation": HIDDEN_ACTIVATION,
+                "output_activation": OUTPUT_ACTIVATION,
+                "leaky_relu_slope": LEAKY_RELU_SLOPE,
+                "l2_lambda": L2_LAMBDA,
+                "epochs": EPOCHS,
+                "patience": PATIENCE,
+                "normalization": NORMALIZATION,
+                "augment_repeats": AUGMENT_REPEATS,
+                "augment_shift_max": AUGMENT_SHIFT_MAX,
+                "augment_noise_std": AUGMENT_NOISE_STD,
+            },
             "elapsed_seconds": elapsed,
             "best_epoch": model.best_epoch,
             "train": {k: v for k, v in train_eval.items() if k != "confusion_matrix"},
@@ -184,7 +239,21 @@ def print_comparison(results: list[dict]) -> None:
         )
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Exercise 3 - Digit classification with more data, augmentation, and imbalance handling"
+    )
+    parser.add_argument(
+        "--experiment",
+        choices=["all", "baseline", "weighted_loss", "weighted_sampling"],
+        default="all",
+        help="Run the full comparison or a single experiment for faster iteration.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
     # -----------------------------------------------------------------------
     # Data
     # -----------------------------------------------------------------------
@@ -197,14 +266,28 @@ if __name__ == "__main__":
     print_combined_eda(X_all, y_all)
     print_dataset_overview("digits_test.csv", X_test, y_test)
 
-    class_w = compute_class_weights(y_all)
-    print_class_weights(class_w)
-
-    # Train / validation split (stratified via random seed)
-    X_train, y_train, X_val, y_val = train_validation_split(
+    # Train / validation split (stratified)
+    X_train_raw, y_train, X_val_raw, y_val = stratified_train_validation_split(
         X_all, y_all, validation_ratio=VALIDATION_RATIO
     )
-    print(f"\nTrain: {len(X_train)}  Val: {len(X_val)}  Test: {len(X_test)}")
+    class_w = compute_class_weights(y_train)
+    print_class_weights(class_w)
+    print(f"\nTrain: {len(X_train_raw)}  Val: {len(X_val_raw)}  Test: {len(X_test)}")
+    print(
+        f"Augmentation: repeats={AUGMENT_REPEATS}  shift_max={AUGMENT_SHIFT_MAX}  "
+        f"noise_std={AUGMENT_NOISE_STD}"
+    )
+    print("Tip: use --experiment weighted_sampling to rerun only the best variant while iterating.")
+
+    X_train_aug, y_train_aug = augment_images(
+        X_train_raw,
+        y_train,
+        repeats=AUGMENT_REPEATS,
+        shift_max=AUGMENT_SHIFT_MAX,
+        noise_std=AUGMENT_NOISE_STD,
+        seed=42,
+    )
+    print(f"Augmented train samples: {len(X_train_aug)}")
 
     # Redirect exercise2 plots module to save into exercise3/plots/
     _ex2_plots.PLOTS_DIR = PLOTS_DIR
@@ -212,37 +295,44 @@ if __name__ == "__main__":
 
     # Normalization (fit on train, apply everywhere)
     scaler = build_scaler(NORMALIZATION)
-    X_train = scaler.fit_transform(X_train)
-    X_val = scaler.transform(X_val)
+    X_train = scaler.fit_transform(X_train_aug)
+    X_val = scaler.transform(X_val_raw)
     X_test = scaler.transform(X_test)
+    scaler_metadata = scaler.to_metadata() if hasattr(scaler, "to_metadata") else None
 
     results = []
 
     # -----------------------------------------------------------------------
     # Experiment 1 — Baseline
     # -----------------------------------------------------------------------
-    results.append(run_experiment(
-        "1-Baseline",
-        X_train, y_train, X_val, y_val, X_test, y_test,
-    ))
+    if args.experiment in ("all", "baseline"):
+        results.append(run_experiment(
+            "1-Baseline",
+            X_train, y_train_aug, X_val, y_val, X_test, y_test,
+            scaler_metadata=scaler_metadata,
+        ))
 
     # -----------------------------------------------------------------------
     # Experiment 2 — Weighted Loss
     # -----------------------------------------------------------------------
-    results.append(run_experiment(
-        "2-Weighted-Loss",
-        X_train, y_train, X_val, y_val, X_test, y_test,
-        class_weights=class_w,
-    ))
+    if args.experiment in ("all", "weighted_loss"):
+        results.append(run_experiment(
+            "2-Weighted-Loss",
+            X_train, y_train_aug, X_val, y_val, X_test, y_test,
+            scaler_metadata=scaler_metadata,
+            class_weights=class_w,
+        ))
 
     # -----------------------------------------------------------------------
     # Experiment 3 — Weighted Sampling
     # -----------------------------------------------------------------------
-    results.append(run_experiment(
-        "3-Weighted-Sampling",
-        X_train, y_train, X_val, y_val, X_test, y_test,
-        use_weighted_sampling=True,
-    ))
+    if args.experiment in ("all", "weighted_sampling"):
+        results.append(run_experiment(
+            "3-Weighted-Sampling",
+            X_train, y_train_aug, X_val, y_val, X_test, y_test,
+            scaler_metadata=scaler_metadata,
+            use_weighted_sampling=True,
+        ))
 
     # -----------------------------------------------------------------------
     # Summary

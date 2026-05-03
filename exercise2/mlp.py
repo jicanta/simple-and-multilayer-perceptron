@@ -9,6 +9,9 @@ import numpy as np
 from metrics import classification_metrics, mse_loss
 
 
+VALID_ACTIVATIONS = {"logistic", "tanh", "leaky_relu"}
+
+
 def logistic(x: np.ndarray, beta: float = 1.0) -> np.ndarray:
     z = np.clip(-2.0 * beta * x, -60.0, 60.0)
     return 1.0 / (1.0 + np.exp(z))
@@ -24,6 +27,14 @@ def tanh_activation(x: np.ndarray, beta: float = 1.0) -> np.ndarray:
 
 def tanh_derivative(output: np.ndarray, beta: float = 1.0) -> np.ndarray:
     return beta * (1.0 - output ** 2)
+
+
+def leaky_relu(x: np.ndarray, slope: float = 0.01) -> np.ndarray:
+    return np.where(x > 0.0, x, slope * x)
+
+
+def leaky_relu_derivative(output: np.ndarray, slope: float = 0.01) -> np.ndarray:
+    return np.where(output > 0.0, 1.0, slope)
 
 
 @dataclass
@@ -47,6 +58,7 @@ class MultilayerPerceptron:
         layer_sizes: list[int],
         learning_rate: float = 0.01,
         activation: str = "logistic",
+        output_activation: str | None = None,
         beta: float = 1.0,
         batch_size: int = 64,
         optimizer: str = "sgd",
@@ -59,11 +71,22 @@ class MultilayerPerceptron:
         adaptive_k: int = 5,
         adaptive_increase: float = 1.05,
         adaptive_decrease: float = 0.5,
+        leaky_relu_slope: float = 0.01,
         seed: int = 42,
     ):
+        if activation not in VALID_ACTIVATIONS:
+            raise ValueError(
+                f"Unsupported activation: {activation}. Choose one of {sorted(VALID_ACTIVATIONS)}."
+            )
+        if output_activation is not None and output_activation not in VALID_ACTIVATIONS:
+            raise ValueError(
+                f"Unsupported output activation: {output_activation}. "
+                f"Choose one of {sorted(VALID_ACTIVATIONS)} or None."
+            )
         self.layer_sizes = layer_sizes
         self.learning_rate = learning_rate
         self.activation = activation
+        self.output_activation = output_activation
         self.beta = beta
         self.batch_size = batch_size
         self.optimizer = optimizer
@@ -76,6 +99,7 @@ class MultilayerPerceptron:
         self.adaptive_k = adaptive_k
         self.adaptive_increase = adaptive_increase
         self.adaptive_decrease = adaptive_decrease
+        self.leaky_relu_slope = leaky_relu_slope
         self.seed = seed
 
         self.weights: list[np.ndarray] = []
@@ -108,22 +132,33 @@ class MultilayerPerceptron:
         ones = np.ones((X.shape[0], 1), dtype=X.dtype)
         return np.hstack([X, ones])
 
-    def _activate(self, h: np.ndarray) -> np.ndarray:
-        if self.activation == "tanh":
+    def _activation_name(self, layer_idx: int) -> str:
+        if layer_idx == len(self.weights) - 1 and self.output_activation is not None:
+            return self.output_activation
+        return self.activation
+
+    def _activate(self, h: np.ndarray, layer_idx: int) -> np.ndarray:
+        activation_name = self._activation_name(layer_idx)
+        if activation_name == "tanh":
             return tanh_activation(h, beta=self.beta)
+        if activation_name == "leaky_relu":
+            return leaky_relu(h, slope=self.leaky_relu_slope)
         return logistic(h, beta=self.beta)
 
-    def _activate_derivative(self, output: np.ndarray) -> np.ndarray:
-        if self.activation == "tanh":
+    def _activate_derivative(self, output: np.ndarray, layer_idx: int) -> np.ndarray:
+        activation_name = self._activation_name(layer_idx)
+        if activation_name == "tanh":
             return tanh_derivative(output, beta=self.beta)
+        if activation_name == "leaky_relu":
+            return leaky_relu_derivative(output, slope=self.leaky_relu_slope)
         return logistic_derivative(output, beta=self.beta)
 
     def forward(self, X: np.ndarray) -> list[np.ndarray]:
         activations = [X]
         current = X
-        for weight in self.weights:
+        for layer_idx, weight in enumerate(self.weights):
             h = self._append_bias(current) @ weight
-            current = self._activate(h)
+            current = self._activate(h, layer_idx)
             activations.append(current)
         return activations
 
@@ -150,11 +185,11 @@ class MultilayerPerceptron:
         output = activations[-1]
 
         delta = np.zeros_like(output)
-        delta[:, class_idx] = self._activate_derivative(output)[:, class_idx]
+        delta[:, class_idx] = self._activate_derivative(output, len(self.weights) - 1)[:, class_idx]
 
         for layer_idx in range(len(self.weights) - 1, 0, -1):
             weight = self.weights[layer_idx][:-1, :]
-            delta = (delta @ weight.T) * self._activate_derivative(activations[layer_idx])
+            delta = (delta @ weight.T) * self._activate_derivative(activations[layer_idx], layer_idx - 1)
 
         first_weight = self.weights[0][:-1, :]
         return delta @ first_weight.T
@@ -203,7 +238,7 @@ class MultilayerPerceptron:
     ) -> list[np.ndarray]:
         deltas: list[np.ndarray] = [np.empty((0, 0), dtype=np.float32) for _ in self.weights]
         output = activations[-1]
-        delta_out = (y_true - output) * self._activate_derivative(output)
+        delta_out = (y_true - output) * self._activate_derivative(output, len(self.weights) - 1)
         if sample_weights is not None:
             # Scale each sample's error by its class weight — (batch,1) broadcasts over (batch, n_out)
             delta_out = delta_out * sample_weights[:, np.newaxis]
@@ -211,9 +246,7 @@ class MultilayerPerceptron:
 
         for layer_idx in range(len(self.weights) - 2, -1, -1):
             propagated = deltas[layer_idx + 1] @ self.weights[layer_idx + 1][:-1, :].T
-            deltas[layer_idx] = propagated * self._activate_derivative(
-                activations[layer_idx + 1]
-            )
+            deltas[layer_idx] = propagated * self._activate_derivative(activations[layer_idx + 1], layer_idx)
 
         gradients = []
         for layer_idx, delta in enumerate(deltas):
@@ -419,6 +452,7 @@ class MultilayerPerceptron:
         payload["layer_sizes"] = np.array(self.layer_sizes, dtype=np.int64)
         payload["learning_rate"] = np.array([self.learning_rate], dtype=np.float32)
         payload["activation"] = np.array([self.activation])
+        payload["output_activation"] = np.array(["" if self.output_activation is None else self.output_activation])
         payload["beta"] = np.array([self.beta], dtype=np.float32)
         payload["batch_size"] = np.array([self.batch_size], dtype=np.int64)
         payload["optimizer"] = np.array([self.optimizer])
@@ -427,6 +461,7 @@ class MultilayerPerceptron:
         payload["adaptive_k"] = np.array([self.adaptive_k], dtype=np.int64)
         payload["adaptive_increase"] = np.array([self.adaptive_increase], dtype=np.float32)
         payload["adaptive_decrease"] = np.array([self.adaptive_decrease], dtype=np.float32)
+        payload["leaky_relu_slope"] = np.array([self.leaky_relu_slope], dtype=np.float32)
         payload["adam_beta1"] = np.array([self.adam_beta1], dtype=np.float32)
         payload["adam_beta2"] = np.array([self.adam_beta2], dtype=np.float32)
         payload["epsilon"] = np.array([self.epsilon], dtype=np.float32)
@@ -456,6 +491,11 @@ class MultilayerPerceptron:
             layer_sizes=layer_sizes,
             learning_rate=float(data["learning_rate"][0]),
             activation=str(data["activation"][0]) if "activation" in data else "logistic",
+            output_activation=(
+                None
+                if "output_activation" not in data or str(data["output_activation"][0]) == ""
+                else str(data["output_activation"][0])
+            ),
             beta=float(data["beta"][0]),
             batch_size=int(data["batch_size"][0]),
             optimizer=str(data["optimizer"][0]),
@@ -468,6 +508,7 @@ class MultilayerPerceptron:
             adaptive_k=int(data["adaptive_k"][0]) if "adaptive_k" in data else 5,
             adaptive_increase=float(data["adaptive_increase"][0]) if "adaptive_increase" in data else 1.05,
             adaptive_decrease=float(data["adaptive_decrease"][0]) if "adaptive_decrease" in data else 0.5,
+            leaky_relu_slope=float(data["leaky_relu_slope"][0]) if "leaky_relu_slope" in data else 0.01,
             seed=int(data["seed"][0]),
         )
         model.weights = [data[f"weight_{idx}"] for idx in range(len(layer_sizes) - 1)]
