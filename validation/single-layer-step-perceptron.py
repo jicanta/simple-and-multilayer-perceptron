@@ -40,7 +40,7 @@ def train_model(x, y):
             y_pred = f(xi, w, b)
 
             if y_pred != yi:
-                w, b = update_weights(xi, yi, w, b)
+                w, b = update_weights(xi, yi - y_pred, w, b)
                 errors += 1
 
         errors_by_epoch.append(errors)
