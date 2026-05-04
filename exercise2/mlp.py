@@ -6,10 +6,12 @@ from pathlib import Path
 
 import numpy as np
 
-from metrics import classification_metrics, mse_loss
+from metrics import classification_metrics, crossentropy_loss, mse_loss
 
 
 VALID_ACTIVATIONS = {"logistic", "tanh", "leaky_relu"}
+VALID_OUTPUT_ACTIVATIONS = VALID_ACTIVATIONS | {"softmax"}
+VALID_LOSSES = {"mse", "crossentropy"}
 
 
 def logistic(x: np.ndarray, beta: float = 1.0) -> np.ndarray:
@@ -37,6 +39,12 @@ def leaky_relu_derivative(output: np.ndarray, slope: float = 0.01) -> np.ndarray
     return np.where(output > 0.0, 1.0, slope)
 
 
+def softmax(x: np.ndarray) -> np.ndarray:
+    shifted = x - np.max(x, axis=1, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / np.sum(exp, axis=1, keepdims=True)
+
+
 @dataclass
 class HistoryPoint:
     epoch: int
@@ -59,6 +67,7 @@ class MultilayerPerceptron:
         learning_rate: float = 0.01,
         activation: str = "logistic",
         output_activation: str | None = None,
+        loss: str = "mse",
         beta: float = 1.0,
         batch_size: int = 64,
         optimizer: str = "sgd",
@@ -78,15 +87,20 @@ class MultilayerPerceptron:
             raise ValueError(
                 f"Unsupported activation: {activation}. Choose one of {sorted(VALID_ACTIVATIONS)}."
             )
-        if output_activation is not None and output_activation not in VALID_ACTIVATIONS:
+        if output_activation is not None and output_activation not in VALID_OUTPUT_ACTIVATIONS:
             raise ValueError(
                 f"Unsupported output activation: {output_activation}. "
-                f"Choose one of {sorted(VALID_ACTIVATIONS)} or None."
+                f"Choose one of {sorted(VALID_OUTPUT_ACTIVATIONS)} or None."
             )
+        if loss not in VALID_LOSSES:
+            raise ValueError(f"Unsupported loss: {loss}. Choose one of {sorted(VALID_LOSSES)}.")
+        if loss == "crossentropy" and output_activation != "softmax":
+            raise ValueError("crossentropy currently requires output_activation='softmax'.")
         self.layer_sizes = layer_sizes
         self.learning_rate = learning_rate
         self.activation = activation
         self.output_activation = output_activation
+        self.loss = loss
         self.beta = beta
         self.batch_size = batch_size
         self.optimizer = optimizer
@@ -143,6 +157,8 @@ class MultilayerPerceptron:
             return tanh_activation(h, beta=self.beta)
         if activation_name == "leaky_relu":
             return leaky_relu(h, slope=self.leaky_relu_slope)
+        if activation_name == "softmax":
+            return softmax(h)
         return logistic(h, beta=self.beta)
 
     def _activate_derivative(self, output: np.ndarray, layer_idx: int) -> np.ndarray:
@@ -151,7 +167,29 @@ class MultilayerPerceptron:
             return tanh_derivative(output, beta=self.beta)
         if activation_name == "leaky_relu":
             return leaky_relu_derivative(output, slope=self.leaky_relu_slope)
+        if activation_name == "softmax":
+            return output * (1.0 - output)
         return logistic_derivative(output, beta=self.beta)
+
+    def _loss_value(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        if self.loss == "crossentropy":
+            return crossentropy_loss(y_true, y_pred)
+        return mse_loss(y_true, y_pred)
+
+    def _output_delta(self, output: np.ndarray, y_true: np.ndarray) -> np.ndarray:
+        if self.loss == "crossentropy":
+            return y_true - output
+        return (y_true - output) * self._activate_derivative(output, len(self.weights) - 1)
+
+    def _output_unit_delta(self, output: np.ndarray, class_idx: int) -> np.ndarray:
+        if self._activation_name(len(self.weights) - 1) == "softmax":
+            delta = -output * output[:, [class_idx]]
+            delta[:, class_idx] = output[:, class_idx] * (1.0 - output[:, class_idx])
+            return delta
+
+        delta = np.zeros_like(output)
+        delta[:, class_idx] = self._activate_derivative(output, len(self.weights) - 1)[:, class_idx]
+        return delta
 
     def forward(self, X: np.ndarray) -> list[np.ndarray]:
         activations = [X]
@@ -184,8 +222,7 @@ class MultilayerPerceptron:
         activations = self.forward(X)
         output = activations[-1]
 
-        delta = np.zeros_like(output)
-        delta[:, class_idx] = self._activate_derivative(output, len(self.weights) - 1)[:, class_idx]
+        delta = self._output_unit_delta(output, class_idx)
 
         for layer_idx in range(len(self.weights) - 1, 0, -1):
             weight = self.weights[layer_idx][:-1, :]
@@ -238,7 +275,7 @@ class MultilayerPerceptron:
     ) -> list[np.ndarray]:
         deltas: list[np.ndarray] = [np.empty((0, 0), dtype=np.float32) for _ in self.weights]
         output = activations[-1]
-        delta_out = (y_true - output) * self._activate_derivative(output, len(self.weights) - 1)
+        delta_out = self._output_delta(output, y_true)
         if sample_weights is not None:
             # Scale each sample's error by its class weight — (batch,1) broadcasts over (batch, n_out)
             delta_out = delta_out * sample_weights[:, np.newaxis]
@@ -314,7 +351,7 @@ class MultilayerPerceptron:
         probabilities = self.predict_proba(X)
         predictions = np.argmax(probabilities, axis=1)
         metrics = classification_metrics(y_true, predictions, num_classes=self.layer_sizes[-1])
-        metrics["loss"] = mse_loss(np.eye(self.layer_sizes[-1])[y_true], probabilities)
+        metrics["loss"] = self._loss_value(np.eye(self.layer_sizes[-1])[y_true], probabilities)
         return metrics
 
     def fit(
@@ -374,7 +411,7 @@ class MultilayerPerceptron:
                 self._apply_optimizer(gradients)
 
             train_proba = self.predict_proba(X_train)
-            train_loss = mse_loss(y_train_oh, train_proba)
+            train_loss = self._loss_value(y_train_oh, train_proba)
             train_metrics = classification_metrics(
                 y_train, np.argmax(train_proba, axis=1), num_classes=self.layer_sizes[-1]
             )
@@ -387,7 +424,7 @@ class MultilayerPerceptron:
             if X_val is not None and y_val is not None:
                 y_val_oh = np.eye(self.layer_sizes[-1], dtype=np.float32)[y_val]
                 val_proba = self.predict_proba(X_val)
-                val_loss = mse_loss(y_val_oh, val_proba)
+                val_loss = self._loss_value(y_val_oh, val_proba)
                 val_metrics = classification_metrics(
                     y_val, np.argmax(val_proba, axis=1), num_classes=self.layer_sizes[-1]
                 )
@@ -453,6 +490,7 @@ class MultilayerPerceptron:
         payload["learning_rate"] = np.array([self.learning_rate], dtype=np.float32)
         payload["activation"] = np.array([self.activation])
         payload["output_activation"] = np.array(["" if self.output_activation is None else self.output_activation])
+        payload["loss"] = np.array([self.loss])
         payload["beta"] = np.array([self.beta], dtype=np.float32)
         payload["batch_size"] = np.array([self.batch_size], dtype=np.int64)
         payload["optimizer"] = np.array([self.optimizer])
@@ -496,6 +534,7 @@ class MultilayerPerceptron:
                 if "output_activation" not in data or str(data["output_activation"][0]) == ""
                 else str(data["output_activation"][0])
             ),
+            loss=str(data["loss"][0]) if "loss" in data else "mse",
             beta=float(data["beta"][0]),
             batch_size=int(data["batch_size"][0]),
             optimizer=str(data["optimizer"][0]),

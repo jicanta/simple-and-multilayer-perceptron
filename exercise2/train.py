@@ -36,6 +36,8 @@ class ExperimentConfig:
     epochs: int = 60
     batch_size: int = 128
     activation: str = "logistic"
+    output_activation: str | None = None
+    loss: str = "mse"
     beta: float = 1.0
     normalization: str = "minmax"
     l2_lambda: float = 0.0
@@ -137,6 +139,8 @@ def run_experiment(config: ExperimentConfig) -> dict:
         layer_sizes=config.architecture,
         learning_rate=config.learning_rate,
         activation=config.activation,
+        output_activation=config.output_activation,
+        loss=config.loss,
         beta=config.beta,
         batch_size=config.batch_size,
         optimizer=config.optimizer,
@@ -312,7 +316,7 @@ def print_experiment_summary(result: dict) -> None:
         f"\n[{config.name}] arch={config.architecture} "
         f"optimizer={config.optimizer} lr={config.learning_rate} "
         f"axis={config.study_axis} "
-        f"activation={config.activation}"
+        f"activation={config.activation} output={config.output_activation or config.activation} loss={config.loss}"
     )
     print(f"  elapsed:      {result['elapsed_seconds']:.2f}s")
     print(f"  best epoch:   {result['best_epoch']}")
@@ -352,6 +356,8 @@ def summarize_by_axis(results: list[dict]) -> dict:
                     "optimizer": result["config"].optimizer,
                     "learning_rate": result["config"].learning_rate,
                     "activation": result["config"].activation,
+                    "output_activation": result["config"].output_activation,
+                    "loss": result["config"].loss,
                     "validation_accuracy": result["validation"]["accuracy"],
                     "validation_precision_macro": result["validation"]["precision_macro"],
                     "validation_recall_macro": result["validation"]["recall_macro"],
@@ -537,10 +543,14 @@ def build_cli_experiment(args: argparse.Namespace) -> ExperimentConfig:
     architecture = args.architecture if args.architecture is not None else baseline.architecture
     lr = args.learning_rate if args.learning_rate is not None else baseline.learning_rate
     activation = args.activation if args.activation is not None else baseline.activation
+    output_activation = args.output_activation if args.output_activation is not None else baseline.output_activation
+    loss = args.loss if args.loss is not None else baseline.loss
     epochs = args.epochs if args.epochs is not None else baseline.epochs
     batch_size = args.batch_size if args.batch_size is not None else baseline.batch_size
     l2_lambda = args.l2_lambda if args.l2_lambda is not None else baseline.l2_lambda
     normalization = args.normalization if args.normalization is not None else baseline.normalization
+    if loss == "crossentropy" and output_activation != "softmax":
+        raise ValueError("crossentropy currently requires --output-activation softmax.")
 
     name = args.name
     if name is None:
@@ -549,6 +559,10 @@ def build_cli_experiment(args: argparse.Namespace) -> ExperimentConfig:
         name = f"mlp_{requested_optimizer}_lr_{lr_label}_arch_{arch_label}"
         if activation != "logistic":
             name = f"{name}_{activation}"
+        if output_activation is not None:
+            name = f"{name}_out_{output_activation}"
+        if loss != "mse":
+            name = f"{name}_loss_{loss}"
 
     return ExperimentConfig(
         name=name,
@@ -559,6 +573,8 @@ def build_cli_experiment(args: argparse.Namespace) -> ExperimentConfig:
         epochs=epochs,
         batch_size=batch_size,
         activation=activation,
+        output_activation=output_activation,
+        loss=loss,
         beta=baseline.beta,
         normalization=normalization,
         l2_lambda=l2_lambda,
@@ -607,6 +623,16 @@ def parse_args() -> argparse.Namespace:
         "--activation",
         choices=["logistic", "tanh"],
         help="Optional activation override for a single custom run.",
+    )
+    parser.add_argument(
+        "--output-activation",
+        choices=["logistic", "tanh", "leaky_relu", "softmax"],
+        help="Optional output activation override for a single custom run.",
+    )
+    parser.add_argument(
+        "--loss",
+        choices=["mse", "crossentropy"],
+        help="Optional loss override for a single custom run.",
     )
     parser.add_argument(
         "--epochs",
@@ -674,6 +700,8 @@ def main() -> None:
             args.learning_rate,
             args.architecture,
             args.activation,
+            args.output_activation,
+            args.loss,
             args.epochs,
             args.batch_size,
             args.l2_lambda,
@@ -726,6 +754,8 @@ def main() -> None:
                 "study_axis": result["config"].study_axis,
                 "learning_rate": result["config"].learning_rate,
                 "activation": result["config"].activation,
+                "output_activation": result["config"].output_activation,
+                "loss": result["config"].loss,
                 "train_accuracy": result["train"]["accuracy"],
                 "validation_accuracy": result["validation"]["accuracy"],
                 "validation_precision_macro": result["validation"]["precision_macro"],

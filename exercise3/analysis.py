@@ -3,7 +3,7 @@ Exercise 3 — Optional analysis
 
 A. Noise robustness
    For each Gaussian noise level σ, add noise to digits_test.csv and evaluate
-   all three trained models. Plots accuracy and F1-macro vs σ, plus a per-class
+   all trained models. Plots accuracy and F1-macro vs σ, plus a per-class
    breakdown for the best model.
 
 B. Attribution / Interpretability
@@ -49,6 +49,8 @@ _MODEL_SLUGS = [
     ("1_baseline", "1-Baseline"),
     ("2_weighted_loss", "2-Weighted-Loss"),
     ("3_weighted_sampling", "3-Weighted-Sampling"),
+    ("4_synthetic_balancing", "4-Synthetic-Balancing"),
+    ("5_smote", "5-SMOTE"),
 ]
 
 N_CLASSES = 10
@@ -146,7 +148,7 @@ def plot_noise_curves(results: dict, noise_levels: list[float]) -> None:
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    colors = ["tab:blue", "tab:orange", "tab:green"]
+    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"]
 
     for (_, label), color in zip(_MODEL_SLUGS, colors):
         r = results[label]
@@ -241,21 +243,7 @@ def compute_saliency(
 
     Returns array of shape (n_samples, n_pixels).
     """
-    activations = model.forward(X)
-
-    a_out = activations[-1]                      # (batch, 10)
-    delta = np.zeros_like(a_out)
-    delta[:, class_idx] = model._activate_derivative(a_out)[:, class_idx]
-
-    n_layers = len(model.weights)
-    for layer_idx in range(n_layers - 1, 0, -1):
-        W = model.weights[layer_idx][:-1, :]     # drop bias row: (in, out)
-        delta_prev = delta @ W.T                  # (batch, in)
-        delta = delta_prev * model._activate_derivative(activations[layer_idx])
-
-    W0 = model.weights[0][:-1, :]               # (784, hidden)
-    saliency = delta @ W0.T                      # (batch, 784)
-    return saliency
+    return model.input_gradients(X, class_idx)
 
 
 def plot_saliency_maps(
@@ -466,10 +454,10 @@ if __name__ == "__main__":
     if not args.skip_attribution:
         _section("B — Attribution / Interpretability")
 
-        print("\n  Saliency maps (all 3 models)...")
+        print("\n  Saliency maps (all models)...")
         plot_saliency_maps(models, X_test, y_test, max_per_class=args.max_samples_per_class)
 
-        print("\n  First-layer weight visualizations (all 3 models)...")
+        print("\n  First-layer weight visualizations (all models)...")
         plot_first_layer_weights(models)
     else:
         print("\n  [skipped] attribution / interpretability (--skip-attribution)")

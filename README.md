@@ -215,15 +215,27 @@ Salida esperada:
 
 - exploración del dataset combinado (`digits.csv` + `more_digits.csv`)
 - distribución de clases y pesos de clase (inverse frequency)
-- tres experimentos comparados: `Baseline`, `Weighted Loss`, `Weighted Sampling`
+- cinco experimentos comparados: `Baseline`, `Weighted Loss`, `Weighted Sampling`, `Synthetic Balancing`, `SMOTE`
 - métricas en entrenamiento, validación y `digits_test.csv` por experimento
 - modelos guardados en `exercise3/models/`
 - resultados en `exercise3/results/`
 - gráficos en `exercise3/plots/` si `matplotlib` está instalado
 
+También se puede correr un solo experimento:
+
+```bash
+python3 exercise3/train.py --experiment weighted_sampling
+python3 exercise3/train.py --experiment synthetic_balancing
+python3 exercise3/train.py --experiment smote
+```
+
+La opción `synthetic_balancing` agrega una variante SMOTE-like: genera muestras sintéticas para las clases minoritarias interpolando entre ejemplos del mismo dígito y aplicando una pequeña perturbación.
+
+La opción `smote` agrega una implementación de SMOTE propiamente dicha: para cada muestra minoritaria elige uno de sus `k` vecinos más cercanos de la misma clase y genera una interpolación lineal, sin meter ruido ni shifts extra.
+
 ### Análisis opcional de Ejercicio 3
 
-Análoga al análisis del Ejercicio 2, pero evaluando los tres modelos entrenados con `train.py`:
+Análoga al análisis del Ejercicio 2, pero evaluando todos los modelos entrenados con `train.py`:
 
 ```bash
 python3 exercise3/analysis.py
@@ -234,7 +246,7 @@ python3 exercise3/analysis.py --skip-attribution
 
 Qué hace este script:
 
-- evalúa los tres modelos del Ejercicio 3 bajo distintos niveles de ruido gaussiano
+- evalúa los modelos del Ejercicio 3 bajo distintos niveles de ruido gaussiano
 - genera gráficos de robustez global y por clase en `exercise3/plots/`
 - genera mapas de saliencia (∂output/∂pixel) por dígito para cada modelo
 - visualiza los pesos de la primera capa de cada modelo

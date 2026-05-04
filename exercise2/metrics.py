@@ -65,6 +65,11 @@ def mse_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(0.5 * np.mean(np.sum((y_true - y_pred) ** 2, axis=1)))
 
 
+def crossentropy_loss(y_true: np.ndarray, y_pred: np.ndarray, epsilon: float = 1e-8) -> float:
+    clipped = np.clip(y_pred, epsilon, 1.0)
+    return float(-np.mean(np.sum(y_true * np.log(clipped), axis=1)))
+
+
 def _to_serializable(value):
     if isinstance(value, np.ndarray):
         return value.tolist()

@@ -1,0 +1,6 @@
+run,mode,test_accuracy,test_f1_macro,val_accuracy,val_f1_macro,best_epoch,elapsed_seconds
+1-Baseline,baseline (no weighting),0.977573,0.977291,0.986062,0.979990,62,480.205445
+2-Weighted-Loss,weighted loss,0.981578,0.981357,0.986298,0.980263,74,529.436938
+3-Weighted-Sampling,weighted sampling,0.982779,0.982534,0.985353,0.979240,73,487.830725
+4-Synthetic-Balancing,synthetic balancing (SMOTE-like),0.979575,0.979080,0.983700,0.976577,32,283.830021
+5-SMOTE,smote,0.979575,0.979292,0.984881,0.975126,66,525.184422
