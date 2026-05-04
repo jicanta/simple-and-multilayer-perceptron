@@ -164,38 +164,48 @@ class Exercise1FinalModelOverview(Scene):
         intro.move_to(DOWN * 0.1)
 
         self.play(FadeIn(header, shift=DOWN * 0.2))
+        self.wait(0.6)
         self.play(self.set_stepper_state(0))
         self.play(FadeIn(section_title, shift=RIGHT * 0.15))
         self.play(FadeIn(intro, shift=UP * 0.2))
-        self.wait(1.4)
+        self.wait(3.5)
         self.play(FadeOut(intro, shift=UP * 0.2))
 
         architecture = self.build_architecture_stage(data)
-        self.play(LaggedStart(*[FadeIn(mob, shift=RIGHT * 0.1) for mob in architecture["inputs"]], lag_ratio=0.08))
-        self.play(Create(architecture["connections"]))
+        self.play(LaggedStart(*[FadeIn(mob, shift=RIGHT * 0.1) for mob in architecture["inputs"]], lag_ratio=0.10, run_time=1.4))
+        self.wait(1.0)
+        self.play(Create(architecture["connections"]), run_time=1.2)
+        self.wait(0.8)
         self.play(FadeIn(architecture["sum_card"], shift=UP * 0.15), GrowArrow(architecture["sum_to_sigmoid"]))
+        self.wait(1.2)
         self.play(FadeIn(architecture["sigmoid_group"], shift=UP * 0.15), GrowArrow(architecture["sigmoid_to_threshold"]))
+        self.wait(1.2)
         self.play(FadeIn(architecture["threshold_card"], shift=UP * 0.15), GrowArrow(architecture["threshold_to_output"]))
+        self.wait(1.2)
         self.play(FadeIn(architecture["output_card"], shift=UP * 0.15), FadeIn(architecture["notes"], shift=UP * 0.1))
+        self.wait(2.0)
         score_demo = self.build_score_demo(data["selection"]["threshold"])
         self.play(FadeIn(score_demo["group"], shift=UP * 0.12))
+        self.wait(1.0)
         self.play(
             MoveAlongPath(score_demo["pulse"], architecture["sum_to_sigmoid"]),
             score_demo["z_tracker"].animate.set_value(0.55),
-            run_time=0.95,
+            run_time=1.2,
         )
+        self.wait(0.5)
         self.play(
             MoveAlongPath(score_demo["pulse"], architecture["sigmoid_to_threshold"]),
             score_demo["z_tracker"].animate.set_value(1.52),
-            run_time=1.05,
+            run_time=1.3,
         )
-        self.play(MoveAlongPath(score_demo["pulse"], architecture["threshold_to_output"]), run_time=0.85)
+        self.wait(0.5)
+        self.play(MoveAlongPath(score_demo["pulse"], architecture["threshold_to_output"]), run_time=1.0)
         self.play(
             Indicate(score_demo["decision_card"], color=SUCCESS, scale_factor=1.02),
             Indicate(architecture["output_card"], color=SUCCESS, scale_factor=1.02),
-            run_time=0.8,
+            run_time=0.9,
         )
-        self.wait(0.9)
+        self.wait(2.5)
 
         self.play(
             FadeOut(architecture["group"], shift=LEFT * 0.2),
@@ -207,19 +217,23 @@ class Exercise1FinalModelOverview(Scene):
         section_title.next_to(header, DOWN, aligned_edge=LEFT, buff=0.34)
         self.play(self.set_stepper_state(1))
         self.play(FadeIn(section_title, shift=RIGHT * 0.15))
+        self.wait(0.6)
 
         weight_stage = self.build_weight_stage(data)
-        self.play(LaggedStart(*[FadeIn(mob, shift=RIGHT * 0.1) for mob in weight_stage["network_items"]], lag_ratio=0.06))
+        self.play(LaggedStart(*[FadeIn(mob, shift=RIGHT * 0.1) for mob in weight_stage["network_items"]], lag_ratio=0.08, run_time=1.4))
+        self.wait(1.0)
         self.play(FadeIn(weight_stage["legend"], shift=UP * 0.1), FadeIn(weight_stage["summary_cards"], shift=LEFT * 0.1))
+        self.wait(2.0)
 
         for idx in weight_stage["highlight_order"]:
             self.play(
                 Indicate(weight_stage["label_map"][idx], color=weight_stage["line_map"][idx].get_color(), scale_factor=1.05),
                 Indicate(weight_stage["line_map"][idx], color=weight_stage["line_map"][idx].get_color(), scale_factor=1.02),
                 Indicate(weight_stage["row_map"][idx], color=weight_stage["line_map"][idx].get_color(), scale_factor=1.02),
-                run_time=0.65,
+                run_time=0.8,
             )
-        self.wait(1.4)
+            self.wait(0.4)
+        self.wait(2.5)
 
         self.play(
             FadeOut(weight_stage["group"], shift=LEFT * 0.2),
@@ -230,12 +244,15 @@ class Exercise1FinalModelOverview(Scene):
         section_title.next_to(header, DOWN, aligned_edge=LEFT, buff=0.34)
         self.play(self.set_stepper_state(2))
         self.play(FadeIn(section_title, shift=RIGHT * 0.15))
+        self.wait(0.6)
 
         setup_stage = self.build_setup_stage(data)
         self.play(FadeIn(setup_stage["training_card"], shift=RIGHT * 0.15))
+        self.wait(2.5)
         self.play(FadeIn(setup_stage["protocol_card"], shift=LEFT * 0.15))
+        self.wait(2.5)
         self.play(FadeIn(setup_stage["split_bar"], shift=UP * 0.1))
-        self.wait(1.5)
+        self.wait(3.0)
 
         self.play(
             FadeOut(setup_stage["group"], shift=LEFT * 0.2),
@@ -246,11 +263,13 @@ class Exercise1FinalModelOverview(Scene):
         section_title.next_to(header, DOWN, aligned_edge=LEFT, buff=0.34)
         self.play(self.set_stepper_state(3))
         self.play(FadeIn(section_title, shift=RIGHT * 0.15))
+        self.wait(0.6)
 
         metrics_stage = self.build_metrics_stage(data)
         self.play(FadeIn(metrics_stage["metrics_card"], shift=RIGHT * 0.15))
+        self.wait(2.5)
         self.play(FadeIn(metrics_stage["confusion_card"], shift=LEFT * 0.15), FadeIn(metrics_stage["threshold_note"], shift=UP * 0.1))
-        self.wait(1.8)
+        self.wait(4.0)
 
         self.play(
             FadeOut(metrics_stage["group"], shift=LEFT * 0.2),
@@ -262,7 +281,7 @@ class Exercise1FinalModelOverview(Scene):
         outro = self.build_outro_stage(data)
         self.play(self.set_stepper_state(4))
         self.play(FadeIn(section_title, shift=RIGHT * 0.15), FadeIn(outro, shift=UP * 0.15))
-        self.wait(2.2)
+        self.wait(6.0)
 
     def build_header(self, data: dict) -> VGroup:
         title = display_text(data["title"], font_size=34, color=WHITE)
