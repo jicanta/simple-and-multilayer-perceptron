@@ -260,6 +260,21 @@ La opción `synthetic_balancing` agrega una variante SMOTE-like: genera muestras
 
 La opción `smote` agrega una implementación de SMOTE propiamente dicha: para cada muestra minoritaria elige uno de sus `k` vecinos más cercanos de la misma clase y genera una interpolación lineal, sin meter ruido ni shifts extra.
 
+#### Dropout
+
+El script acepta `--dropout-rate` para activar dropout en las capas ocultas durante el entrenamiento (inverted dropout). El valor por defecto es `0.0` (sin dropout).
+
+La mejor configuración encontrada es `weighted_sampling` con `dropout_rate=0.2`:
+
+```bash
+python3 exercise3/train.py --experiment weighted_sampling --dropout-rate 0.2
+```
+
+| Configuración | Test Accuracy | Test F1 macro |
+|---|---|---|
+| Weighted Sampling (sin dropout) | 98.28% | 0.9825 |
+| Weighted Sampling + Dropout 0.2 | **98.36%** | **0.9833** |
+
 ### Análisis opcional de Ejercicio 3
 
 Análoga al análisis del Ejercicio 2, pero evaluando todos los modelos entrenados con `train.py`:

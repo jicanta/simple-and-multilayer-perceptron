@@ -58,6 +58,7 @@ OUTPUT_ACTIVATION = "logistic"
 LOSS_NAME = "mse"
 LEAKY_RELU_SLOPE = 0.01
 L2_LAMBDA = 1e-4
+DROPOUT_RATE = 0.0
 EPOCHS = 180
 PATIENCE = 24
 VALIDATION_RATIO = 0.15
@@ -152,6 +153,7 @@ def run_experiment(
     print(f"  loss            : {loss_name}")
     print(f"  optimizer/lr    : {OPTIMIZER} / {LEARNING_RATE}")
     print(f"  l2 lambda       : {L2_LAMBDA}")
+    print(f"  dropout rate    : {DROPOUT_RATE}")
     print(f"  epochs (max)    : {EPOCHS}  patience={PATIENCE}")
     print(f"  train / val     : {len(X_train)} / {len(X_val)}\n")
 
@@ -164,6 +166,7 @@ def run_experiment(
         optimizer=OPTIMIZER,
         batch_size=BATCH_SIZE,
         l2_lambda=L2_LAMBDA,
+        dropout_rate=DROPOUT_RATE,
         leaky_relu_slope=LEAKY_RELU_SLOPE,
         seed=42,
     )
@@ -303,6 +306,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional override for the training/evaluation loss.",
     )
+    parser.add_argument(
+        "--dropout-rate",
+        type=float,
+        default=None,
+        help="Dropout rate for hidden layers (0.0 = disabled). Overrides DROPOUT_RATE constant.",
+    )
     return parser.parse_args()
 
 
@@ -310,6 +319,8 @@ if __name__ == "__main__":
     args = parse_args()
     output_activation = OUTPUT_ACTIVATION if args.output_activation is None else args.output_activation
     loss_name = LOSS_NAME if args.loss is None else args.loss
+    if args.dropout_rate is not None:
+        DROPOUT_RATE = args.dropout_rate
     if loss_name == "crossentropy" and output_activation != "softmax":
         raise ValueError("crossentropy currently requires --output-activation softmax.")
     # -----------------------------------------------------------------------

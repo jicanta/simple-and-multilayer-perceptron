@@ -77,6 +77,7 @@ class MultilayerPerceptron:
         adam_beta2: float = 0.999,
         epsilon: float = 1e-8,
         l2_lambda: float = 0.0,
+        dropout_rate: float = 0.0,
         adaptive_k: int = 5,
         adaptive_increase: float = 1.05,
         adaptive_decrease: float = 0.5,
@@ -110,6 +111,7 @@ class MultilayerPerceptron:
         self.adam_beta2 = adam_beta2
         self.epsilon = epsilon
         self.l2_lambda = l2_lambda
+        self.dropout_rate = dropout_rate
         self.adaptive_k = adaptive_k
         self.adaptive_increase = adaptive_increase
         self.adaptive_decrease = adaptive_decrease
@@ -117,6 +119,7 @@ class MultilayerPerceptron:
         self.seed = seed
 
         self.weights: list[np.ndarray] = []
+        self._dropout_masks: list[np.ndarray | None] = []
         self._velocity: list[np.ndarray] = []
         self._rms: list[np.ndarray] = []
         self._adam_m: list[np.ndarray] = []
@@ -129,6 +132,7 @@ class MultilayerPerceptron:
 
     def _initialize(self) -> None:
         rng = np.random.default_rng(self.seed)
+        self._dropout_rng = np.random.default_rng(self.seed + 1)
         self.weights = []
         for in_size, out_size in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
             weight = rng.normal(0.0, 0.05, size=(in_size + 1, out_size)).astype(np.float32)
@@ -191,12 +195,23 @@ class MultilayerPerceptron:
         delta[:, class_idx] = self._activate_derivative(output, len(self.weights) - 1)[:, class_idx]
         return delta
 
-    def forward(self, X: np.ndarray) -> list[np.ndarray]:
+    def forward(self, X: np.ndarray, training: bool = False) -> list[np.ndarray]:
         activations = [X]
+        self._dropout_masks = []
         current = X
+        is_hidden = len(self.weights) > 1
         for layer_idx, weight in enumerate(self.weights):
             h = self._append_bias(current) @ weight
             current = self._activate(h, layer_idx)
+            is_output = layer_idx == len(self.weights) - 1
+            if training and self.dropout_rate > 0.0 and not is_output:
+                mask = (
+                    self._dropout_rng.random(current.shape) >= self.dropout_rate
+                ).astype(current.dtype)
+                current = current * mask / (1.0 - self.dropout_rate)
+                self._dropout_masks.append(mask)
+            else:
+                self._dropout_masks.append(None)
             activations.append(current)
         return activations
 
@@ -283,6 +298,9 @@ class MultilayerPerceptron:
 
         for layer_idx in range(len(self.weights) - 2, -1, -1):
             propagated = deltas[layer_idx + 1] @ self.weights[layer_idx + 1][:-1, :].T
+            mask = self._dropout_masks[layer_idx] if self._dropout_masks else None
+            if mask is not None:
+                propagated = propagated * mask / (1.0 - self.dropout_rate)
             deltas[layer_idx] = propagated * self._activate_derivative(activations[layer_idx + 1], layer_idx)
 
         gradients = []
@@ -401,7 +419,7 @@ class MultilayerPerceptron:
             for start in range(0, n, self.batch_size):
                 X_batch = X_epoch[start : start + self.batch_size]
                 y_batch = y_epoch[start : start + self.batch_size]
-                activations = self.forward(X_batch)
+                activations = self.forward(X_batch, training=True)
 
                 batch_sample_weights: np.ndarray | None = None
                 if class_weights is not None:
@@ -504,6 +522,7 @@ class MultilayerPerceptron:
         payload["adam_beta2"] = np.array([self.adam_beta2], dtype=np.float32)
         payload["epsilon"] = np.array([self.epsilon], dtype=np.float32)
         payload["l2_lambda"] = np.array([self.l2_lambda], dtype=np.float32)
+        payload["dropout_rate"] = np.array([self.dropout_rate], dtype=np.float32)
         payload["seed"] = np.array([self.seed], dtype=np.int64)
         payload["step"] = np.array([self._step], dtype=np.int64)
         payload["best_epoch"] = np.array(
@@ -544,6 +563,7 @@ class MultilayerPerceptron:
             adam_beta2=float(data["adam_beta2"][0]),
             epsilon=float(data["epsilon"][0]),
             l2_lambda=float(data["l2_lambda"][0]),
+            dropout_rate=float(data["dropout_rate"][0]) if "dropout_rate" in data else 0.0,
             adaptive_k=int(data["adaptive_k"][0]) if "adaptive_k" in data else 5,
             adaptive_increase=float(data["adaptive_increase"][0]) if "adaptive_increase" in data else 1.05,
             adaptive_decrease=float(data["adaptive_decrease"][0]) if "adaptive_decrease" in data else 0.5,
