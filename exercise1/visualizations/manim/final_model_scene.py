@@ -183,7 +183,9 @@ class Exercise1FinalModelOverview(Scene):
         self.play(FadeIn(architecture["threshold_card"], shift=UP * 0.15), GrowArrow(architecture["threshold_to_output"]))
         self.wait(1.2)
         self.play(FadeIn(architecture["output_card"], shift=UP * 0.15), FadeIn(architecture["notes"], shift=UP * 0.1))
-        self.wait(2.0)
+        self.wait(2.5)
+        # Notes overlap with the score demo in the bottom area — fade them out before showing it
+        self.play(FadeOut(architecture["notes"], shift=DOWN * 0.1))
         score_demo = self.build_score_demo(data["selection"]["threshold"])
         self.play(FadeIn(score_demo["group"], shift=UP * 0.12))
         self.wait(1.0)
