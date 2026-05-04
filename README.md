@@ -105,6 +105,33 @@ xdg-open exercise1/visualizations/renders/videos/final_model_scene/1080p60/Exerc
 
 > **Nota:** el script usa la imagen Docker `manimcommunity/manim:stable`, así que no hace falta instalar Manim localmente.
 
+### Visualización principal de Ejercicio 3
+
+Para regenerar los datos que consume la visualización:
+
+```bash
+python3 exercise3/visualization_data.py
+```
+
+Para renderizar la animación de Manim (requiere Docker):
+
+```bash
+bash exercise3/visualizations/manim/render_nn_overview.sh
+```
+
+Salida esperada:
+
+- datos exportados en `exercise3/visualizations/data/nn_overview.json`
+- video renderizado en `exercise3/visualizations/renders/videos/nn_overview_scene/1080p60/Exercise3NNOverview.mp4`
+
+Para abrir el video generado:
+
+```bash
+xdg-open exercise3/visualizations/renders/videos/nn_overview_scene/1080p60/Exercise3NNOverview.mp4
+```
+
+> **Nota:** el script usa la imagen Docker `manimcommunity/manim:stable`, así que no hace falta instalar Manim localmente.
+
 ### Ejercicio 2
 
 ```bash

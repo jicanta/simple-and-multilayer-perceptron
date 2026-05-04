@@ -20,4 +20,11 @@ exercise1/visualizations/data/
 exercise1/visualizations/renders/*
 !exercise1/visualizations/renders/.gitkeep
 
+exercise3/plots/
+exercise3/models/
+exercise3/results/
+exercise3/visualizations/data/
+exercise3/visualizations/renders/*
+!exercise3/visualizations/renders/.gitkeep
+
 validation/plots/
