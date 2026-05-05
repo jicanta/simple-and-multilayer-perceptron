@@ -78,59 +78,41 @@ Salida esperada:
 - gráficos en `exercise1/plots/` si `matplotlib` está instalado
 - datos para la visualización principal en `exercise1/visualizations/data/`
 
-### Visualización principal de Ejercicio 1
+### Visualizaciones Manim
 
-Para regenerar los datos que consume la visualización:
+Todas las animaciones usan la imagen Docker `manimcommunity/manim:stable` — no hace falta instalar Manim localmente.
 
-```bash
-python3 exercise1/train.py
-```
+#### Ejercicio 1 — modelo final (fraude)
 
-Para renderizar la animación de Manim:
+Muestra la arquitectura del perceptrón entrenado, los pesos aprendidos, el setup de entrenamiento y las métricas finales.
 
 ```bash
+python3 exercise1/train.py                            # genera los datos
 bash exercise1/visualizations/manim/render_final_model.sh
 ```
 
-Salida esperada:
+Video: `exercise1/visualizations/renders/videos/final_model_scene/1080p60/Exercise1FinalModelOverview.mp4`
 
-- datos exportados en `exercise1/visualizations/data/final_model_overview.json`
-- video renderizado en `exercise1/visualizations/renders/videos/final_model_scene/1080p60/Exercise1FinalModelOverview.mp4`
+#### Ejercicio 3 — overview de la red y experimentos
 
-Para abrir el video generado:
-
-```bash
-xdg-open exercise1/visualizations/renders/videos/final_model_scene/1080p60/Exercise1FinalModelOverview.mp4
-```
-
-> **Nota:** el script usa la imagen Docker `manimcommunity/manim:stable`, así que no hace falta instalar Manim localmente.
-
-### Visualización principal de Ejercicio 3
-
-Para regenerar los datos que consume la visualización:
+Recorre arquitectura, pipeline de datos, los 5 experimentos y los resultados por clase del mejor modelo.
 
 ```bash
-python3 exercise3/visualization_data.py
-```
-
-Para renderizar la animación de Manim (requiere Docker):
-
-```bash
+python3 exercise3/visualization_data.py               # genera los datos
 bash exercise3/visualizations/manim/render_nn_overview.sh
 ```
 
-Salida esperada:
+Video: `exercise3/visualizations/renders/videos/nn_overview_scene/1080p60/Exercise3NNOverview.mp4`
 
-- datos exportados en `exercise3/visualizations/data/nn_overview.json`
-- video renderizado en `exercise3/visualizations/renders/videos/nn_overview_scene/1080p60/Exercise3NNOverview.mp4`
+#### Validación — regresión lineal y no lineal
 
-Para abrir el video generado:
+Muestra en vivo el gradiente descendente del perceptrón lineal (identidad) aprendiendo `y = x`, `y = 2x`, `y = x+1`, `y = −1.5x+0.5`, y el perceptrón tanh aprendiendo `tanh(x)`.
 
 ```bash
-xdg-open exercise3/visualizations/renders/videos/nn_overview_scene/1080p60/Exercise3NNOverview.mp4
+bash validation/manim/render_validation.sh
 ```
 
-> **Nota:** el script usa la imagen Docker `manimcommunity/manim:stable`, así que no hace falta instalar Manim localmente.
+Video: `validation/renders/videos/validation_scene/1080p60/ValidationRegressionScene.mp4`
 
 ### Ejercicio 2
 
