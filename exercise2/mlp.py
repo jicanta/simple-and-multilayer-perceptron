@@ -135,7 +135,8 @@ class MultilayerPerceptron:
         self._dropout_rng = np.random.default_rng(self.seed + 1)
         self.weights = []
         for in_size, out_size in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
-            weight = rng.normal(0.0, 0.05, size=(in_size + 1, out_size)).astype(np.float32)
+            std = float(np.sqrt(2.0 / in_size))  # He init
+            weight = rng.normal(0.0, std, size=(in_size + 1, out_size)).astype(np.float32)
             self.weights.append(weight)
 
         self._velocity = [np.zeros_like(weight) for weight in self.weights]

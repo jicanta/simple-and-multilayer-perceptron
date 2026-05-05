@@ -418,8 +418,13 @@ if __name__ == "__main__":
     # Experiment 4 — Synthetic Balancing
     # -----------------------------------------------------------------------
     if args.experiment in ("all", "synthetic_balancing"):
-        X_train_synth_raw, y_train_synth = synthetic_balance_classes(
+        X_train_norm4, X_val_synth, X_test_synth, scaler_metadata_synth = _normalize_splits(
             X_train_aug,
+            X_val_raw,
+            X_test_raw,
+        )
+        X_train_synth, y_train_synth = synthetic_balance_classes(
+            X_train_norm4,
             y_train_aug,
             shift_max=SYNTHETIC_SHIFT_MAX,
             noise_std=SYNTHETIC_NOISE_STD,
@@ -427,14 +432,8 @@ if __name__ == "__main__":
             mix_max=SYNTHETIC_MIX_MAX,
             seed=42,
         )
-        print(f"Synthetic-balanced train samples: {len(X_train_synth_raw)}")
+        print(f"Synthetic-balanced train samples: {len(X_train_synth)}")
         _print_class_distribution("Synthetic-balanced train distribution:", y_train_synth)
-
-        X_train_synth, X_val_synth, X_test_synth, scaler_metadata_synth = _normalize_splits(
-            X_train_synth_raw,
-            X_val_raw,
-            X_test_raw,
-        )
         results.append(run_experiment(
             _run_variant_name("4-Synthetic-Balancing", output_activation, loss_name),
             X_train_synth, y_train_synth, X_val_synth, y_val, X_test_synth, y_test,
@@ -449,20 +448,19 @@ if __name__ == "__main__":
     # Experiment 5 — SMOTE
     # -----------------------------------------------------------------------
     if args.experiment in ("all", "smote"):
-        X_train_smote_raw, y_train_smote = smote_balance_classes(
+        X_train_norm5, X_val_smote, X_test_smote, scaler_metadata_smote = _normalize_splits(
             X_train_aug,
+            X_val_raw,
+            X_test_raw,
+        )
+        X_train_smote, y_train_smote = smote_balance_classes(
+            X_train_norm5,
             y_train_aug,
             k_neighbors=SMOTE_K_NEIGHBORS,
             seed=42,
         )
-        print(f"SMOTE-balanced train samples: {len(X_train_smote_raw)}")
+        print(f"SMOTE-balanced train samples: {len(X_train_smote)}")
         _print_class_distribution("SMOTE-balanced train distribution:", y_train_smote)
-
-        X_train_smote, X_val_smote, X_test_smote, scaler_metadata_smote = _normalize_splits(
-            X_train_smote_raw,
-            X_val_raw,
-            X_test_raw,
-        )
         results.append(run_experiment(
             _run_variant_name("5-SMOTE", output_activation, loss_name),
             X_train_smote, y_train_smote, X_val_smote, y_val, X_test_smote, y_test,
