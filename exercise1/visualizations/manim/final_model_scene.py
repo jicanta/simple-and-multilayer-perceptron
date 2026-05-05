@@ -539,36 +539,44 @@ class Exercise1FinalModelOverview(Scene):
         def probability() -> float:
             return sigmoid_scalar(z_tracker.get_value())
 
+        # Fixed absolute positions — always_redraw creates objects at (0,0,0) each
+        # frame and become() moves the mob there, breaking VGroup.arrange layouts.
+        # Each lambda must position explicitly so the text stays put.
+        cx, cy = 3.55, -2.62
+        z_x, p_x, d_x = cx - 1.72, cx + 0.05, cx + 1.82
+        lbl_y, val_y = cy + 0.22, cy - 0.30
+
+        card = make_card(5.8, 1.90)
+        card.move_to(np.array([cx, cy, 0.0]))
+        title = display_text("Live threshold demo", font_size=22, color=WHITE)
+        title.move_to(np.array([cx, cy + 0.68, 0.0]))
+
+        z_label = body_text("z", font_size=14, color=MUTED).move_to(np.array([z_x, lbl_y, 0.0]))
+        p_label = body_text("sigmoid(z)", font_size=14, color=MUTED).move_to(np.array([p_x, lbl_y, 0.0]))
+        d_label = body_text("decision", font_size=14, color=MUTED).move_to(np.array([d_x, lbl_y, 0.0]))
+
         z_value = always_redraw(
             lambda: numeric_text(f"{z_tracker.get_value():+.2f}", font_size=26, color=ACCENT)
+            .move_to(np.array([z_x, val_y, 0.0]))
         )
         p_value = always_redraw(
             lambda: numeric_text(f"{probability():.3f}", font_size=26, color=SUCCESS)
+            .move_to(np.array([p_x, val_y, 0.0]))
         )
         decision_value = always_redraw(
             lambda: body_text(
                 "fraud" if probability() >= threshold else "not fraud",
                 font_size=20,
                 color=SUCCESS if probability() >= threshold else MUTED,
-            )
+            ).move_to(np.array([d_x, val_y, 0.0]))
         )
-
-        z_col = VGroup(body_text("z", font_size=14, color=MUTED), z_value).arrange(DOWN, buff=0.05)
-        p_col = VGroup(body_text("sigmoid(z)", font_size=14, color=MUTED), p_value).arrange(DOWN, buff=0.05)
-        d_col = VGroup(body_text("decision", font_size=14, color=MUTED), decision_value).arrange(DOWN, buff=0.05)
-        columns = VGroup(z_col, p_col, d_col).arrange(RIGHT, buff=0.42, aligned_edge=DOWN)
-        body = VGroup(body_text("example score flow", font_size=14, color=MUTED), columns).arrange(
-            DOWN,
-            aligned_edge=LEFT,
-            buff=0.08,
-        )
-        card = make_card_group("Live threshold demo", body, width=5.4, height=1.7)
-        card.move_to(np.array([3.55, -2.62, 0.0]))
 
         pulse = Dot(radius=0.065, color=WARNING)
         pulse.move_to(np.array([-0.1, 0.0, 0.0]))
+
+        static_grp = VGroup(card, title, z_label, p_label, d_label)
         return {
-            "group": VGroup(card, pulse),
+            "group": VGroup(static_grp, z_value, p_value, decision_value, pulse),
             "pulse": pulse,
             "z_tracker": z_tracker,
             "decision_card": card,
